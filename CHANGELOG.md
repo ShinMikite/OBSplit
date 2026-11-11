@@ -7,6 +7,8 @@
 - **Scenes+:** clicking a scene says "switch", not "go live"; the current scene is tagged CURRENT.
 - **Sources+** (new panel): the current scene's sources with show/hide, lock, move, properties and filters; **📌 always on top / always at bottom** layers that hold in every scene; ＋ Game, ＋ Discord, ＋ Screen region and ＋ More (common source types or an existing source), to one scene or all scenes. The add buttons moved here from Scenes+.
 - **＋ Discord** works before Discord is open.
+- **Scenes+:** drag scenes to reorder (OBS's own list follows after OBS closes), + Scene, rename and delete.
+- **Look:** simple single-colour line icons like OBS's own instead of emoji, a plain status dot instead of a badge, quieter tags.
 - **Fix: buttons stopped responding** once 7 panels were open. Panels now get live updates over WebSockets, which don't use up the browser's limit of 6 connections per address; leftover request data can no longer break the next click.
 - **Layout lock** (OBSplit Setup): saves your exact panel layout and window size when OBS closes, then puts them back every time OBS closes if anything changed them. The locked layout is also used for OBS's account-specific (e.g. YouTube) layout.
 - **Audio+ → ⚙ Mic:** pick the microphone and adjust boost, noise gate, noise removal, "even out my voice" and clipping protection in plain language, with a live level meter.

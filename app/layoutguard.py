@@ -175,6 +175,39 @@ def _apply(saved):
     return changed
 
 
+def apply_scene_orders(orders, log=print):
+    """Make OBS's own Scenes list use the order arranged in Scenes+ (OBS can't reorder scenes remotely,
+    so it's written to the scene collection file while OBS is closed). Only the order changes."""
+    d = os.path.join(OBS, "basic", "scenes")
+    if not orders or not os.path.isdir(d):
+        return []
+    done = []
+    for f in os.listdir(d):
+        if not f.endswith(".json"):
+            continue
+        path = os.path.join(d, f)
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        want = orders.get(data.get("name"))
+        cur = [x.get("name") for x in data.get("scene_order", [])]
+        if not want or not cur:
+            continue
+        new = [n for n in want if n in cur] + [n for n in cur if n not in want]
+        if new == cur:
+            continue
+        data["scene_order"] = [{"name": n} for n in new]
+        tmp = path + ".obsplit-tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=4)
+        json.load(open(tmp, encoding="utf-8"))   # make sure it's valid before replacing
+        os.replace(tmp, path)
+        done.append(data.get("name"))
+        log("scene order applied to OBS for", data.get("name"))
+    return done
+
+
 def on_obs_closed(log=print):
     """Called by the helper after OBS has exited."""
     st = _load()

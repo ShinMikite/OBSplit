@@ -32,8 +32,6 @@
   .tools { position: absolute; right: 6px; top: 1px; display: none; gap: 3px; background: var(--panel2);
     border: 1px solid var(--border); border-radius: 6px; padding: 1px 3px; }
   body.can-mod .msg:hover .tools { display: flex; }
-  .tools button { border: 0; background: none; padding: 1px 5px; font-size: .85em; }
-  .tools button:hover { background: rgba(255,255,255,.08); }
   .card { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); }
   .card .head { padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-weight: 600; }
   .card .head .amt { margin-left: auto; font-weight: 700; }
@@ -67,7 +65,7 @@
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <span id="viewers" class="muted small"></span>
   <input id="filter" class="grow" placeholder="Filter chat…">
-  <button id="gear" title="Chat settings">⚙</button>
+  <button id="gear" class="ib" title="Chat settings"></button>
 </div>
 <div id="list"></div>
 <button id="more" hidden></button>
@@ -140,11 +138,11 @@ function nameNode(ev) {
 
 function toolsNode(ev) {
   const t = el('span', 'tools');
-  const b = (label, title, fn) => { const x = el('button', null, label); x.title = title; x.onclick = e => { e.stopPropagation(); fn(); }; t.appendChild(x); };
-  b('🗑', 'Delete message', () => act('/api/delete', { id: ev.id }, 'Message deleted'));
-  b('⏱', 'Time out (' + fmtSecs(cfg.timeout_default || 300) + ')', () =>
+  const b = (icon, title, fn) => t.appendChild(icoBtn(icon, title, fn));
+  b('trash', 'Delete message', () => act('/api/delete', { id: ev.id }, 'Message deleted'));
+  b('clock', 'Time out (' + fmtSecs(cfg.timeout_default || 300) + ')', () =>
     act('/api/ban', { ch: ev.ch, seconds: cfg.timeout_default || 300 }, ev.name + ' timed out for ' + fmtSecs(cfg.timeout_default || 300)));
-  b('🚫', 'Ban from chat', () => { if (confirm('Ban ' + ev.name + ' from your chat?')) act('/api/ban', { ch: ev.ch, seconds: 0 }, ev.name + ' banned'); });
+  b('ban', 'Ban from chat', () => { if (confirm('Ban ' + ev.name + ' from your chat?')) act('/api/ban', { ch: ev.ch, seconds: 0 }, ev.name + ' banned'); });
   return t;
 }
 
@@ -205,7 +203,7 @@ function add(ev, bulk) {
   }
   if (bulk) return;
   if (pinned) list.scrollTop = list.scrollHeight;
-  else { unread++; $('#more').textContent = '▼ ' + unread + ' new message' + (unread > 1 ? 's' : ''); $('#more').hidden = false; }
+  else { unread++; $('#more').textContent = unread + ' new message' + (unread > 1 ? 's' : '') + ' below'; $('#more').hidden = false; }
 }
 
 list.addEventListener('scroll', () => {
@@ -307,7 +305,7 @@ async function openUser(ch, name) {
     const t = segsNode(x.segs); if (x.deleted) t.style.textDecoration = 'line-through';
     row.appendChild(t);
     if (connected && x.can_delete && !x.deleted && ch !== cfg.channel_id) {
-      const del = el('button', null, '🗑'); del.style.cssText = 'float:right;padding:0 5px;border:0;background:none';
+      const del = icoBtn('trash', 'Delete'); del.style.cssText = 'float:right';
       del.title = 'Delete'; del.onclick = () => act('/api/delete', { id: x.id }, 'Message deleted').then(ok => ok && (t.style.textDecoration = 'line-through'));
       row.appendChild(del);
     }
@@ -329,6 +327,7 @@ async function openUser(ch, name) {
 }
 
 // ---------- settings
+$('#gear').appendChild(ico('gear'));
 $('#gear').onclick = () => {
   const bg = el('div', 'modal-bg'), m = el('div', 'modal');
   bg.onclick = e => { if (e.target === bg) bg.remove(); };
@@ -356,7 +355,7 @@ $('#gear').onclick = () => {
 
 // ---------- viewers in the top bar
 async function pollViewers() {
-  try { const s = await api('/api/stats'); $('#viewers').textContent = s.viewers != null ? '👁 ' + fmtNum(s.viewers) : ''; } catch (e) { }
+  try { const s = await api('/api/stats'); $('#viewers').textContent = s.viewers != null ? fmtNum(s.viewers) + ' watching' : ''; } catch (e) { }
 }
 setInterval(pollViewers, 30000);
 

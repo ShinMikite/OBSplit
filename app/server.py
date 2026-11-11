@@ -962,6 +962,10 @@ def obs_watchdog():
                 layoutguard.on_obs_closed(log)   # save or put back the locked panel layout
             except Exception as e:
                 log("layout lock failed", repr(e))
+            try:
+                layoutguard.apply_scene_orders(APP.config.get("scene_orders") or {}, log)
+            except Exception as e:
+                log("scene order failed", repr(e))
             os._exit(0)
 
 
@@ -1387,6 +1391,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"ok": True, **st})
                     elif p == "/api/obs/mix":
                         return self.send_json({"ok": True, "auto": APP.obs.set_mix(b)})
+                    elif p == "/api/obs/scene-order":
+                        APP.obs.set_scene_order(b.get("order") or [])
+                    elif p == "/api/obs/scene-admin":
+                        APP.obs.scene_admin(b)
                     elif p == "/api/obs/item":
                         APP.obs.item_action(b)
                     elif p == "/api/obs/add-source":

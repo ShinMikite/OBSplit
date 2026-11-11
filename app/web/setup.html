@@ -72,8 +72,8 @@ const open = url => api('/api/open', { url }).catch(e => toast(e.message, true))
 async function drawLayout(s) {
   if (!s) { try { s = await api('/api/obs/layout'); } catch (e) { return; } }
   const msg = { off: 'Not locked. OBS saves and restores the layout on its own.',
-    pending: '⏳ Will be saved when you close OBS. Arrange your panels the way you want them, then close OBS once.',
-    locked: '🔒 Locked' + (s.saved_at ? ' (saved ' + s.saved_at + ')' : '') + '. Your layout is put back every time OBS closes.' +
+    pending: 'Will be saved when you close OBS. Arrange your panels the way you want them, then close OBS once.',
+    locked: 'Locked' + (s.saved_at ? ' (saved ' + s.saved_at + ')' : '') + '. Your layout is put back every time OBS closes.' +
       (s.restores ? ' Fixed ' + s.restores + ' time' + (s.restores === 1 ? '' : 's') + (s.restored_at ? ', last ' + s.restored_at : '') + '.' : '') };
   $('#layoutState').textContent = msg[s.mode] || '';
   $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : '5';

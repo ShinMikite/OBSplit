@@ -27,14 +27,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .bar > .grow, .bar > input, .bar > select { flex-shrink: 1; min-width: 40px; }
 html, body { overflow-x: hidden; }
 .grow { flex: 1; min-width: 0; }
-.pill { display: inline-flex; align-items: center; gap: 6px; font-size: .8em; font-weight: 600;
-  padding: 2px 8px; border-radius: 99px; background: var(--panel2); white-space: nowrap; }
-.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.pill.live { background: rgba(229, 72, 77, .18); color: #ff8c90; }
-.pill.live .dot { background: #ff4d55; animation: pulse 1.6s infinite; }
+/* status: a small dot and short plain text, nothing more */
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: .78em; color: var(--muted); white-space: nowrap; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.pill.live { color: #ff6b70; font-weight: 600; } .pill.live .dot { background: #ff4d55; }
 .pill.upcoming .dot { background: var(--warn); }
-.pill.watching .dot { background: var(--accent); }
-.pill.reconnect { color: #f5c451; } .pill.reconnect .dot { background: var(--warn); animation: pulse 1s infinite; }
+.pill.watching .dot, .pill.ok .dot { background: var(--ok); }
+.pill.reconnect { color: var(--warn); } .pill.reconnect .dot { background: var(--warn); animation: pulse 1s infinite; }
+/* line icons */
+.ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round;
+  stroke-linejoin: round; vertical-align: -3px; flex: none; }
+.ib { border: 0; background: none; padding: 2px 4px; color: var(--muted); display: inline-flex; align-items: center;
+  gap: 3px; border-radius: 4px; }
+.ib:hover { color: var(--text); background: rgba(255,255,255,.07); }
+.ib.on { color: var(--text); }
 .stale { opacity: .55; pointer-events: none; transition: opacity .2s; }
 @keyframes pulse { 50% { opacity: .35; } }
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-start;

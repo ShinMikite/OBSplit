@@ -91,7 +91,7 @@ async function loadList(keep) {
   cats = d.categories;
   const pick = $('#pick'); pick.innerHTML = '';
   for (const b of d.broadcasts) {
-    const o = el('option', null, (b.state === 'live' ? '🔴 LIVE: ' : '🕒 ' + (b.scheduled ? new Date(b.scheduled).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ': ' : 'Upcoming: ')) + b.title);
+    const o = el('option', null, (b.state === 'live' ? 'LIVE: ' : '' + (b.scheduled ? new Date(b.scheduled).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ': ' : 'Upcoming: ')) + b.title);
     o.value = b.id; pick.appendChild(o);
   }
   if (!d.broadcasts.length) {
@@ -114,7 +114,7 @@ async function save() {
   const v = values();
   if (!v.title) return toast('The title can\'t be empty.', true);
   $('#save').disabled = true; $('#saved').textContent = 'Saving…';
-  try { orig = await api('/api/video', v); fill(orig); dirty(); $('#saved').textContent = 'Saved ✓ ' + fmtTime(Date.now()); toast('Saved to YouTube'); }
+  try { orig = await api('/api/video', v); fill(orig); dirty(); $('#saved').textContent = 'Saved at ' + fmtTime(Date.now()); toast('Saved to YouTube'); }
   catch (e) { $('#saved').textContent = ''; toast(e.message, true); dirty(); }
 }
 

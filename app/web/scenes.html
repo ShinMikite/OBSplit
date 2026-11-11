@@ -19,13 +19,9 @@
   .thumb .ph { color: var(--muted); font-size: .8em; }
   .foot { display: flex; align-items: center; gap: 4px; padding: 4px 6px; }
   .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: .9em; }
-  .tag { position: absolute; top: 5px; left: 5px; font-size: .68em; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
-  .tag.cur { background: var(--accent); color: #fff; } .tag.pv { background: var(--ok); color: #08130b; }
-  .rule { border: 1px solid var(--border); background: var(--panel2); border-radius: 5px; padding: 0 4px;
-    font-size: .8em; line-height: 1.5; cursor: pointer; min-width: 26px; text-align: center; }
-  .rule.on { background: #14532d; border-color: #22c55e; }
-  .rule.off { background: #5f1d21; border-color: #ef4444; }
-  .rule.none { opacity: .45; }
+  .tag { position: absolute; top: 4px; left: 4px; font-size: .62em; font-weight: 700; padding: 0 4px; border-radius: 3px;
+    letter-spacing: .03em; }
+  .tag.cur { background: rgba(0,0,0,.6); color: #8fb4ff; } .tag.pv { background: rgba(0,0,0,.6); color: var(--ok); }
   .thumb { position: relative; }
   .note { position: absolute; left: 4px; bottom: 4px; font-size: .64em; padding: 1px 5px; border-radius: 4px;
     background: rgba(0,0,0,.7); color: #c9cbd3; pointer-events: none; }
@@ -38,6 +34,18 @@
   .sec { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 8px; }
   .row2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9em; margin: 4px 0; }
   .ok { color: var(--ok); } .warn { color: var(--warn); }
+  .rule { display: inline-flex; align-items: center; gap: 1px; border: 0; background: none; padding: 1px 3px;
+    border-radius: 4px; cursor: pointer; color: var(--muted); }
+  .rule:hover { background: rgba(255,255,255,.07); color: var(--text); }
+  .rule .ico { width: 13px; height: 13px; }
+  .rule.on { color: var(--ok); } .rule.off { color: #ff6b70; } .rule.none { opacity: .55; }
+  .card.dragging { opacity: .35; }
+  .card.drop-before { box-shadow: -3px 0 0 0 var(--accent); }
+  .card.drop-after { box-shadow: 3px 0 0 0 var(--accent); }
+  .menu { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; min-width: 160px; }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 10px; border-radius: 5px; }
+  .menu button:hover { background: rgba(255,255,255,.08); }
   #legend { padding: 0 8px 6px; font-size: .75em; color: var(--muted); flex: none; }
 </style>
 </head>
@@ -45,18 +53,21 @@
 <div class="bar">
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <span id="mode" class="muted small grow" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
-  <button id="go" class="primary" hidden title="Switch to the green preview scene">Transition ▶</button>
+  <button id="addScene" title="Make a new scene">+ Scene</button>
+  <button id="go" class="primary" hidden title="Switch to the green preview scene">Transition</button>
 </div>
 <div id="grid"></div>
 <div id="legend"></div>
 <script src="/static/common.js"></script>
 <script>
 let st = { scenes: [], inputs: {}, specials: [], rules: {} }; const thumbs = {};
-const ICON = k => /input_capture/.test(k) ? '🎙' : '🔈';
+const ICON = k => /input_capture/.test(k) ? 'mic' : 'speaker';
 
 function ruleBtn(scene, name) {
   const v = ((st.rules || {})[scene] || {})[name] || '';
-  const b = el('span', 'rule ' + (v || 'none'), ICON((st.inputs[name] || {}).kind) + (v === 'off' ? '✕' : v === 'on' ? '✓' : ''));
+  const b = el('span', 'rule ' + (v || 'none'));
+  b.appendChild(ico(ICON((st.inputs[name] || {}).kind)));
+  if (v) b.appendChild(ico(v === 'off' ? 'x' : 'check'));
   b.title = name + ' in "' + scene + '": ' + (v === 'on' ? 'always ON when you switch to this scene'
     : v === 'off' ? 'always MUTED when you switch to this scene' : 'left as it is') + '\n(click to change)';
   b.onclick = e => {
@@ -88,22 +99,57 @@ function draw() {
     for (const n of st.specials) f.appendChild(ruleBtn(s, n));
     c.appendChild(f);
     c.onclick = () => api('/api/obs/scene', { scene: s }).catch(e => toast(e.message, true));
+    c.draggable = true;
+    c.ondragstart = e => { dragName = s; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; };
+    c.ondragend = () => { dragName = null; document.querySelectorAll('.card').forEach(x => x.classList.remove('dragging', 'drop-before', 'drop-after')); };
+    c.ondragover = e => {
+      if (!dragName || dragName === s) return;
+      e.preventDefault();
+      const after = e.offsetX > c.offsetWidth / 2;
+      c.classList.toggle('drop-after', after); c.classList.toggle('drop-before', !after);
+    };
+    c.ondragleave = () => c.classList.remove('drop-before', 'drop-after');
+    c.ondrop = e => {
+      e.preventDefault();
+      const after = c.classList.contains('drop-after');
+      const order = st.scenes.filter(n => n !== dragName);
+      order.splice(order.indexOf(s) + (after ? 1 : 0), 0, dragName);
+      st.scenes = order; draw();
+      api('/api/obs/scene-order', { order }).catch(err => toast(err.message, true));
+    };
+    c.oncontextmenu = e => { e.preventDefault(); sceneMenu(e, s); };
     if (st.studio) c.ondblclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
     g.appendChild(c);
   }
   $('#legend').textContent = st.specials.length
-    ? 'Small buttons = what ' + st.specials.join(' / ') + ' do when you switch to a scene: dim = leave as is, ✓ = turn on, ✕ = mute.' : '';
+    ? 'Drag to reorder · right-click to rename or delete · mic/speaker: what happens when you switch to that scene (faint = no change, tick = on, cross = muted)' : '';
 }
 
 function header() {
   const p = $('#pill');
-  if (st.connected) { p.className = 'pill watching'; p.innerHTML = '<span class="dot"></span>OBS'; p.title = 'Connected to OBS'; }
+  if (st.connected) { p.className = 'pill ok'; p.innerHTML = '<span class="dot"></span>'; p.title = 'Connected to OBS'; }
   else if (st.reconnecting) { p.className = 'pill reconnect'; p.innerHTML = '<span class="dot"></span>Reconnecting…'; p.title = 'The OBSplit helper is restarting. This fixes itself.'; }
   else { p.className = 'pill'; p.innerHTML = '<span class="dot"></span>OBS offline'; p.title = st.error || ''; }
-  $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click or ▶ = switch' : 'Click a scene to switch to it') : '';
+  $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click = switch' : 'Click a scene to switch to it') : '';
   $('#go').hidden = !(st.connected && st.studio);
 }
 $('#go').onclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
+let dragName = null;
+const admin = body => api('/api/obs/scene-admin', body).catch(e => toast(e.message, true));
+$('#addScene').onclick = () => { const n = prompt('Name for the new scene:'); if (n && n.trim()) admin({ action: 'create', name: n.trim() }); };
+
+function sceneMenu(e, s) {
+  document.querySelectorAll('.menu').forEach(m => m.remove());
+  const m = el('div', 'menu');
+  const item = (label, fn) => { const b = el('button', null, label); b.onclick = () => { m.remove(); fn(); }; m.appendChild(b); };
+  item('Switch to this scene', () => api('/api/obs/scene', { scene: s }).catch(err => toast(err.message, true)));
+  item('Rename…', () => { const n = prompt('Rename "' + s + '" to:', s); if (n && n.trim() && n.trim() !== s) admin({ action: 'rename', scene: s, name: n.trim() }); });
+  item('Delete…', () => { if (confirm('Delete the scene "' + s + '"? Its sources stay in your other scenes.')) admin({ action: 'remove', scene: s }); });
+  document.body.appendChild(m);
+  m.style.left = Math.min(e.clientX, innerWidth - m.offsetWidth - 6) + 'px';
+  m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight - 6) + 'px';
+  setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('click', off); } }), 0);
+}
 
 function fillThumb(t, s) {
   const th = thumbs[s];

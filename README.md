@@ -12,20 +12,21 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 
 ### Scenes+
 - **Scene thumbnails** for every scene. Click one to switch to it. This only changes scenes; **Start Streaming** in OBS still decides when you're live. Studio Mode is supported (click = preview, double-click = switch).
-- **Per-scene audio:** small 🎙 / 🔈 switches on each scene. For example, mute the mic automatically whenever you switch to your "Starting soon" scene.
+- **Drag to reorder** scenes, **+ Scene**, and right-click to **rename** or **delete**. OBS's own Scenes list follows the same order from the next time OBS starts (OBS can't reorder scenes while running, so OBSplit applies it right after OBS closes).
+- **Per-scene audio:** small mic / speaker switches on each scene. For example, mute the mic automatically whenever you switch to your "Starting soon" scene.
 - Scenes that are black when they aren't showing, such as videos that only play while their scene is on screen, show the last picture from when they were.
 
 ### Sources+
-- The current scene's sources, top layer first: show/hide 👁, lock 🔒, move ▲▼, double-click for Properties, and a ⋯ menu (Filters, bring to front, send to back, remove).
-- **📌 Pinned layers:** mark a source **Always on top** or **Always at bottom**. It stays there in **every scene**, whatever you add or move later. Useful for alerts on top and backgrounds at the bottom.
+- The current scene's sources, top layer first, laid out like OBS's own list: show/hide, lock, move up/down (on hover), double-click for Properties, and a menu (Filters, bring to front, send to back, remove).
+- **Pinned layers:** mark a source **Always on top** or **Always at bottom**. It stays there in **every scene**, whatever you add or move later. Useful for alerts on top and backgrounds at the bottom.
 - **＋ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
 - **＋ Discord:** adds Discord voice audio in one click, to one scene or **all scenes**, even before Discord is open. It reuses your existing Discord source instead of creating duplicates, and fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
 - **＋ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
 - **＋ More:** image, media file, browser, text, color, slideshow, camera / capture card, window, display, audio input or app audio, opened straight into OBS's setup window. You can also add a source you already have (like OBS's "Paste (Reference)"), to one scene or all scenes.
 
 ### Audio+
-- A simpler mixer: mute, volume with a live meter, and **🎧 Hear** (play it in your headphones).
-- **⚙ Mic** on microphones: pick the device and set boost, noise gate, background-noise removal, "even out my voice" and clipping protection in plain language, with a live level meter.
+- A simpler mixer: mute, volume with a live meter, and a headphones button (play it in your headphones).
+- **Mic settings** (gear button on microphones): pick the device and set boost, noise gate, background-noise removal, "even out my voice" and clipping protection in plain language, with a live level meter.
 - Instead of OBS's track grid, each source has an **On stream** switch and a **Recording** dropdown named after what's on each track (Mic, Game, Discord…).
 - **Mix check:**
   - **Keep my voice on top:** one switch keeps everything else on the stream at least 6–16 dB below your voice (you choose), all the time and for anything you add later. Nothing gets louder when you stop talking, and it remembers your usual voice level so it works through quiet stretches. Turning it off puts your volumes back.

@@ -591,6 +591,13 @@ class ObsLink:
     def sync(self):
         sl = self.request("GetSceneList")
         scenes = [s["sceneName"] for s in sorted(sl.get("scenes", []), key=lambda s: -s.get("sceneIndex", 0))]
+        try:
+            collection = self.request("GetSceneCollectionList").get("currentSceneCollectionName", "")
+        except ObsError:
+            collection = ""
+        scenes = self._ordered(scenes, collection)
+        with self.lock:
+            self.state["collection"] = collection
         studio = self.request("GetStudioModeEnabled").get("studioModeEnabled", False)
         specials = [v for v in self.request("GetSpecialInputs").values() if v]
         inputs = {}
@@ -1598,6 +1605,62 @@ class ObsLink:
         scene = self.target_scene(scene)
         items = self.request("GetSceneItemList", {"sceneName": scene}).get("sceneItems", [])
         return [it["sourceName"] for it in items if it.get("inputKind") == "monitor_capture"]
+
+    # ----- scene order / add / rename / delete (Scenes+)
+    def _ordered(self, scenes, collection):
+        """Scenes in the order the user arranged in Scenes+ (new scenes go at the end)."""
+        custom = (self.config.get("scene_orders") or {}).get(collection) or []
+        return [n for n in custom if n in scenes] + [n for n in scenes if n not in custom]
+
+    def set_scene_order(self, order):
+        scenes = self.state.get("scenes", [])
+        if sorted(order) != sorted(scenes):
+            raise ObsError("The scene list changed. Try again.")
+        orders = dict(self.config.get("scene_orders") or {})
+        orders[self.state.get("collection", "")] = list(order)
+        self.config.update(scene_orders=orders)
+        with self.lock:
+            self.state["scenes"] = list(order)
+        self.push_state()
+
+    def scene_admin(self, b):
+        a = b.get("action")
+        if a == "create":
+            name = (b.get("name") or "").strip()
+            if not name:
+                raise ObsError("Give the scene a name.")
+            if name in self.state.get("scenes", []):
+                raise ObsError("There's already a scene with that name.")
+            self.request("CreateScene", {"sceneName": name})
+        elif a == "rename":
+            old, new = b.get("scene"), (b.get("name") or "").strip()
+            if not new or new == old:
+                return
+            if new in self.state.get("scenes", []):
+                raise ObsError("There's already a scene with that name.")
+            self.request("SetSceneName", {"sceneName": old, "newSceneName": new})
+            # carry OBSplit's own settings over to the new name
+            orders = dict(self.config.get("scene_orders") or {})
+            col = self.state.get("collection", "")
+            if col in orders:
+                orders[col] = [new if n == old else n for n in orders[col]]
+                self.config.update(scene_orders=orders)
+            rules = dict(self.config.get("scene_audio") or {})
+            if old in rules:
+                rules[new] = rules.pop(old)
+                self.config.update(scene_audio=rules)
+            if old in self.last_live:
+                self.last_live[new] = self.last_live.pop(old)
+                self._save_last_live(force=True)
+            if old in self.thumbs:
+                self.thumbs[new] = self.thumbs.pop(old)
+        elif a == "remove":
+            scene = b.get("scene")
+            if len(self.state.get("scenes", [])) <= 1:
+                raise ObsError("OBS needs at least one scene.")
+            self.request("RemoveScene", {"sceneName": scene})
+        else:
+            raise ObsError("Unknown scene action.")
 
     def set_rule(self, scene, name, val):
         rules = dict(self.config.get("scene_audio") or {})

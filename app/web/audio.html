@@ -18,9 +18,9 @@
   .nm { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nm small { color: var(--muted); font-weight: 400; margin-left: 4px; }
   .db { font-size: .78em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
-  .ib { padding: 1px 6px; font-size: .85em; line-height: 1.4; white-space: nowrap; }
-  .ib.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .mute.on { background: #7d2226; border-color: #a02e33; }
+  .ib { font-size: .82em; white-space: nowrap; }
+  .ib.on { color: #8fb4ff; }
+  .mute.on { color: #ff6b70; }
   .fader { position: relative; height: 22px; margin: 5px 0 4px; }
   .meter { position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: 3px; overflow: hidden;
     background: linear-gradient(90deg, #1f9d55 0%, #1f9d55 66%, #d9a400 66%, #d9a400 87%, #e5484d 87%); }
@@ -114,18 +114,16 @@ function row(name) {
   const i = st.inputs[name];
   const r = el('div', 'src' + (i.muted ? ' muted' : '')); r.dataset.name = name;
   const l1 = el('div', 'l1');
-  const mute = el('button', 'ib mute' + (i.muted ? ' on' : ''), i.muted ? '🔇' : '🔊');
-  mute.title = i.muted ? 'Muted. Click to unmute' : 'Click to mute'; mute.onclick = () => send({ name, muted: !i.muted });
+  const mute = icoBtn(i.muted ? 'speakerOff' : 'speaker', i.muted ? 'Muted. Click to unmute' : 'Click to mute',
+    () => send({ name, muted: !i.muted }), null, 'mute' + (i.muted ? ' on' : ''));
   const nm = el('span', 'nm', name); nm.appendChild(el('small', null, KIND[i.kind] || '')); nm.title = name;
   const db = el('span', 'db', i.db <= -100 ? '-inf dB' : i.db.toFixed(1) + ' dB');
   const monOn = i.monitor !== MON.none;
-  const mon = el('button', 'ib' + (monOn ? ' on' : ''), monOn ? '🎧 Hearing' : '🎧 Hear');
-  mon.title = monOn ? 'You hear this in your headphones. Click to stop.' : "You don't hear this through OBS. Click to hear it in your headphones.";
-  mon.onclick = () => send({ name, monitor: monOn ? MON.none : MON.both });
+  const mon = icoBtn('headphones', monOn ? 'You hear this in your headphones. Click to stop.' : "You don't hear this through OBS. Click to hear it in your headphones.",
+    () => send({ name, monitor: monOn ? MON.none : MON.both }), null, monOn ? 'on' : '');
   l1.append(mute, nm, db);
   if (i.kind === 'wasapi_input_capture') {
-    const g = el('button', 'ib', '⚙ Mic'); g.title = 'Microphone settings: device, noise removal, evening out, boost';
-    g.onclick = () => openMic(name); l1.appendChild(g);
+    l1.appendChild(icoBtn('gear', 'Microphone settings: device, noise removal, evening out, boost', () => openMic(name)));
   }
   l1.appendChild(mon);
 
@@ -140,7 +138,7 @@ function row(name) {
 
   const l3 = el('div', 'l3');
   const onStream = !!(i.tracks || {})[streamTrack()];
-  const t = el('span', 'tog' + (onStream ? ' on' : ''), onStream ? '✓ On stream' : 'Not on stream');
+  const t = el('span', 'tog' + (onStream ? ' on' : ''), onStream ? 'On stream' : 'Not on stream');
   t.title = onStream ? 'Viewers hear this. Click to keep it off the stream.' : "Viewers don't hear this. Click to put it on the stream.";
   t.onclick = () => send({ name, track: Number(streamTrack()), on: !onStream });
   l3.appendChild(t);
@@ -166,7 +164,7 @@ function drawMixer() {
   if (!loud.length) list.appendChild(el('div', 'notice', 'No sound sources in this scene.'));
   if (silent.length) {
     const t = el('div', 'silentbar');
-    t.textContent = (showSilent ? '▾ ' : '▸ ') + silent.length + ' without sound: ' + silent.join(', ');
+    t.textContent = silent.length + ' without sound (' + (showSilent ? 'hide' : 'show') + '): ' + silent.join(', ');
     t.title = 'Videos with no or silent soundtrack, browser sources not set to "Control audio via OBS", and captures with "Capture audio" off.';
     t.onclick = () => { showSilent = !showSilent; drawMixer(); };
     list.appendChild(t);
@@ -209,7 +207,7 @@ async function openMic(name) {
 
   function render() {
     m.innerHTML = '';
-    m.appendChild(el('h3', null, '⚙ ' + name));
+    m.appendChild(el('h3', null, name + ' settings'));
     const f = k => d.filters.find(x => x.kind === k);
     // device + level
     const dev = el('select'); dev.style.width = '100%';
@@ -303,7 +301,7 @@ function buildMix() {
   <div class="card">
     <h4>Hear what viewers hear</h4>
     <p>Records 15 seconds of exactly what goes out on the stream (only the stream audio), then plays it back here. Talk over your game while it records.</p>
-    <div class="row-flex" style="margin-top:6px"><button id="rec" class="primary">● Record a 15-second check</button><span id="recState" class="muted small"></span></div>
+    <div class="row-flex" style="margin-top:6px"><button id="rec" class="primary">Record a 15-second check</button><span id="recState" class="muted small"></span></div>
     <div id="player"></div>
   </div>
   <div class="card">
@@ -379,8 +377,8 @@ $('#vScene').onclick = () => { view = 'scene'; $('#vScene').classList.add('on');
 $('#vAll').onclick = () => { view = 'all'; $('#vAll').classList.add('on'); $('#vScene').classList.remove('on'); drawMixer(); };
 
 function pill() {
-  const p = $('#pill'); p.className = 'pill' + (st.connected ? ' watching' : st.reconnecting ? ' reconnect' : '');
-  p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : st.reconnecting ? 'Reconnecting…' : 'OBS offline');
+  const p = $('#pill'); p.className = 'pill' + (st.connected ? ' ok' : st.reconnecting ? ' reconnect' : '');
+  p.innerHTML = '<span class="dot"></span>' + (st.connected ? '' : st.reconnecting ? 'Reconnecting…' : 'OBS offline');
   p.title = st.connected ? 'Connected to OBS' : st.reconnecting ? 'The OBSplit helper is restarting. This fixes itself.' : (st.error || '');
 }
 
