@@ -8,6 +8,7 @@
 - **Sources+** (new panel): the current scene's sources with show/hide, lock, move, properties and filters; **📌 always on top / always at bottom** layers that hold in every scene; ＋ Game, ＋ Discord, ＋ Screen region and ＋ More (common source types or an existing source), to one scene or all scenes. The add buttons moved here from Scenes+.
 - **＋ Discord** works before Discord is open.
 - **Backup launcher:** a second, independent OBS script starts the helper before the panels load if the main launcher can't be loaded (for example, its file is briefly locked while OBS starts), so the panels never open to "Couldn't load that page".
+- **Stream keys list:** your own keys come first; the dozens of leftover keys XSplit and Restream created (one per stream) are folded behind one "Show older keys" entry, with plain labels like "Made by Restream, May 15, 2023".
 - **Stream keys:** if YouTube has a server hiccup while listing your stream keys, OBSplit asks again with fewer details instead of showing an error.
 - **Fix: privacy and title changes looked like they failed.** YT Stream Info now shows what YouTube confirmed when saving, instead of re-reading right away and briefly getting the old values. **+ New** no longer says "Couldn't find that stream" when YouTube takes a few seconds to list a stream it just created.
 - **OBSplit Setup:** Chat source shows as done once it knows your channel; the setup steps explain what to do when Google's **Publish app** button is greyed out.

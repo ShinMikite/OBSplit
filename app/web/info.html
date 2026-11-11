@@ -131,12 +131,50 @@ async function keyBox(box, keys) {
   if (keys.obs_account_connected) box.appendChild(el('div', 'muted small', 'OBS also has your YouTube account connected (Settings → Stream). Disconnect it there so Start Streaming goes straight live instead of opening "Manage Broadcast".'));
   const row = el('div', 'row-flex');
   const sel = el('select'); sel.id = 'streamKey';
-  for (const k of keys.streams.filter(k => k.reusable)) {
-    const o = el('option', null, k.title + (k.resolution && k.resolution !== 'variable' ? ' (' + k.resolution + ')' : ''));
-    o.value = k.id; sel.appendChild(o);
-  }
+  // XSplit and Restream make a new key for every stream ("XSplitBroadcaster 720p <id>", "restream_<date>"), so
+  // channels coming from them have dozens. Keep those out of the way: the key OBS uses (and the last one picked)
+  // always show; the rest sit behind one "show older keys" entry, grouped by the program that made them.
+  const reusable = keys.streams.filter(k => k.reusable);
+  const res = k => k.resolution && k.resolution !== 'variable' ? ', ' + k.resolution : '';
+  const maker = k => /^XSplitBroadcaster\b/i.test(k.title || '') ? 'XSplit' : /^restream_/i.test(k.title || '') ? 'Restream' : null;
+  const label = k => {
+    const t = k.title || '';
+    if (maker(k) === 'XSplit') {
+      const m = t.match(/^XSplitBroadcaster\s+(\S+)?\s*(\S+)?/i) || [];
+      return 'Made by XSplit' + (m[1] ? ', ' + m[1] : '') + (m[2] ? ' · ' + m[2].slice(0, 5) : '');
+    }
+    if (maker(k) === 'Restream') {
+      const d = new Date(t.slice(9));
+      return 'Made by Restream, ' + (isNaN(d) ? t.slice(9) : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })) + res(k);
+    }
+    if (t === 'Default stream key') return 'YouTube default key' + res(k);
+    return t + (res(k) ? ' (' + res(k).slice(2) + ')' : '');
+  };
+  const keep = id => id && ((inObs && inObs.id === id) || keys.defaults.streamId === id);
+  const main = reusable.filter(k => !maker(k) || keep(k.id)), old = reusable.filter(k => maker(k) && !keep(k.id));
+  const add = (parent, k) => { const o = el('option', null, label(k)); o.value = k.id; parent.appendChild(o); };
+  main.forEach(k => add(sel, k));
   const mk = el('option', null, 'Create a new stream key'); mk.value = ''; sel.appendChild(mk);
-  sel.value = (inObs && inObs.id) || (keys.defaults.streamId && keys.streams.some(k => k.id === keys.defaults.streamId) ? keys.defaults.streamId : (sel.options[0] || {}).value || '');
+  if (old.length) {
+    const makers = [...new Set(old.map(maker))];
+    if (keyBox.showOld) {
+      for (const who of makers) {
+        const list = old.filter(k => maker(k) === who);
+        const g = document.createElement('optgroup'); g.label = 'Older keys made by ' + who + ' (' + list.length + ')';
+        list.forEach(k => add(g, k)); sel.appendChild(g);
+      }
+    } else {
+      const more = el('option', null, 'Show ' + old.length + ' older key' + (old.length === 1 ? '' : 's') + ' made by ' + makers.join(' and ') + '…');
+      more.value = '__old'; sel.appendChild(more);
+    }
+  }
+  const pick = (inObs && inObs.id) || (keys.defaults.streamId && reusable.some(k => k.id === keys.defaults.streamId) && keys.defaults.streamId);
+  sel.value = pick || (main[0] ? main[0].id : '');
+  let last = sel.value;
+  sel.onchange = () => {
+    if (sel.value !== '__old') { last = sel.value; return; }
+    keyBox.showOld = true; keyBox(box, keys).then(() => { const s = $('#streamKey'); if (s) s.value = last; });
+  };
   const use = el('button', null, 'Use in OBS');
   use.title = 'Puts this stream key into OBS (Settings → Stream). The key goes from YouTube straight into OBS.';
   use.onclick = async () => {
