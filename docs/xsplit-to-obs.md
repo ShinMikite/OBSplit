@@ -10,7 +10,7 @@ Where XSplit's features live in OBS Studio (with OBSplit installed), and setting
 | Add a screen region | **Scenes+ → ＋ Screen region** (drag a box or click a window) |
 | Pick application audio | **Scenes+ → ＋ Discord**, or **＋ Game** for games. Anything else: **Sources → ＋ → Application Audio Capture** |
 | See scene thumbnails | **Scenes+** panel |
-| Use the Preview Editor (edit off-air) | Click **Studio Mode** (Controls panel). Left = preview you edit, right = live, **Transition** sends it live |
+| Use the Preview Editor (edit a scene without changing what viewers see) | Click **Studio Mode** (Controls panel). Left = preview you edit, right = what viewers see, **Transition** swaps them |
 | Mark audio as stream-only / recording-only | **Audio+**: the **Stream** and **Rec** switches on each source |
 | Mute the mic on certain scenes | **Scenes+**: the 🎙 switch on each scene |
 | Drag an edge to crop | Hold **Alt** and drag an edge of the source |

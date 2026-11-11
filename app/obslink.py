@@ -281,7 +281,7 @@ class ObsLink:
         self.state = {"connected": False, "error": "", "scenes": [], "program": None, "preview": None,
                       "studio": False, "inputs": {}, "specials": [], "members": [], "rec_tracks": [2, 3, 4]}
         self.thumbs = {}          # scene -> {"img", "stale", "dark"} as shown in Scenes+
-        self.last_live = self._load_last_live()   # scene -> last good picture while live/previewed
+        self.last_live = self._load_last_live()   # scene -> last good picture while current or previewed
         self._last_saved = 0
         self.meters = {}
         self.heard = self._load_heard()   # name -> {"silent": bool}: learned by listening while a source plays
@@ -617,8 +617,8 @@ class ObsLink:
 
     def _thumbs_loop(self):
         """Scene thumbnails, only while a Scenes+ panel is open.
-        Off-air scenes that render black (videos that only play when live, capture cards that switch off
-        when hidden) show the last good picture from when they were live or in the Studio Mode preview."""
+        Scenes that render black when not shown (videos that only play while their scene is current, capture
+        cards that switch off when hidden) show the last good picture from when they were current or previewed."""
         while True:
             time.sleep(0.25)
             if not self.ws or not self.state["connected"]:
@@ -632,7 +632,7 @@ class ObsLink:
             now = time.time()
             for s in scenes:
                 if self.thumb_due.get(s, 0) <= now:
-                    # Still pictures: live scene refreshed once a minute, others every 2 minutes
+                    # Still pictures: current scene refreshed once a minute, others every 2 minutes
                     self.thumb_due[s] = now + (60.0 if s in live else 120.0)
                     try:
                         img = self.request("GetSourceScreenshot", {"sourceName": s, "imageFormat": "jpg",
@@ -678,7 +678,7 @@ class ObsLink:
         os.replace(tmp, self.HEARD_FILE)
 
     def _learn(self, dt):
-        """Listen to sources in the live scene: one that plays 15 s without any sound is marked silent;
+        """Listen to sources in the current scene: one that plays 15 s without any sound is marked silent;
         one that makes sound is marked audible. Only media/browser sources are judged this way."""
         with self.lock:
             members = set(self.state.get("members") or [])

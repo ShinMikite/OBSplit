@@ -104,7 +104,7 @@ function draw() {
   }
   const s = st.status || {};
   const src = c.watch_override ? 'Reading chat from another stream: ' + c.watch_override
-    : c.channel_id ? 'Reading chat from your channel (' + (c.channel_title || c.channel_id) + '). It switches automatically when you go live.'
+    : c.channel_id ? 'Reading chat from your channel (' + (c.channel_title || c.channel_id) + '). It switches automatically when you start streaming.'
     : 'Connect your channel above so chat knows where to look.';
   $('#srcNow').textContent = src;
   $('#watch').value = '';

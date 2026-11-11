@@ -11,17 +11,17 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 ## Features
 
 ### Scenes+
-- **Scene thumbnails** for every scene. Click one to go live; Studio Mode is supported (click = preview, double-click = transition).
+- **Scene thumbnails** for every scene. Click one to switch to it. This only changes scenes; **Start Streaming** in OBS still decides when you're live. Studio Mode is supported (click = preview, double-click = switch).
 - **＋ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
 - **＋ Discord:** adds Discord voice audio in one click and reuses your existing Discord source instead of creating duplicates. It also fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
 - **＋ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
-- **Per-scene audio:** small 🎙 / 🔈 switches on each scene. For example, mute the mic automatically whenever "Starting soon" goes live.
-- Scenes that are black when off-air, such as videos that only play while live, show the last picture from when they were live.
+- **Per-scene audio:** small 🎙 / 🔈 switches on each scene. For example, mute the mic automatically whenever you switch to your "Starting soon" scene.
+- Scenes that are black when they aren't showing, such as videos that only play while their scene is on screen, show the last picture from when they were.
 
 ### Audio+
 - A simpler mixer: mute, volume with a live meter, and **🎧 (you hear it)**.
 - Instead of OBS's track grid, each source has plain switches: **Stream**, **Rec 2**, **Rec 3**…, named after what's on each track (Mic, Game, Discord…).
-- **This scene** shows only what's in the live scene (plus mic and desktop audio). Sources that can't make sound are tucked away, including videos whose soundtrack turns out to be silent.
+- **This scene** shows only what's in the current scene (plus mic and desktop audio). Sources that can't make sound are tucked away, including videos whose soundtrack turns out to be silent.
 
 ### YouTube
 - **YT Chat**, a Chatty-style chat:
