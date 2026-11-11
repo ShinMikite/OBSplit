@@ -868,6 +868,8 @@ class ChatWorker(threading.Thread):
                 return None, "offline", ""
             r = APP.google.request("GET", "/liveBroadcasts", {"part": "snippet", "broadcastStatus": "active",
                                                               "broadcastType": "all", "maxResults": 5}, cost=1)
+        except obslink.ObsError:     # OBS closed or starting: nothing is streaming, nothing to report
+            return None, "offline", ""
         except Exception as e:
             log("live check via API failed", repr(e)[:200])
             return None, "offline", ""
