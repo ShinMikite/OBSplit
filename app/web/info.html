@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YT Stream Info</title>
+<title>Stream Info</title>
 <link rel="stylesheet" href="/static/common.css">
 <style>
   body { overflow: auto; }
@@ -28,10 +28,18 @@
   .keybox { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: .86em; }
   .keybox .row-flex select { flex: 1; }
   .ok { color: var(--ok); } .warn { color: var(--warn); }
+  .catwrap { position: relative; }
+  .catlist { position: absolute; left: 0; right: 0; top: 100%; z-index: 10; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; max-height: 260px; overflow: auto; }
+  .catlist div { display: flex; gap: 8px; align-items: center; padding: 4px 6px; cursor: pointer; }
+  .catlist div:hover { background: rgba(255,255,255,.07); }
+  .catlist img { width: 26px; height: 36px; border-radius: 3px; object-fit: cover; }
+  .grow-hide { display: none !important; }
 </style>
 </head>
 <body>
 <div class="bar">
+  <span id="plat"></span>
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <select id="pick" class="grow"></select>
   <button id="newBtn" title="Set up a new stream">+ New</button>
@@ -262,13 +270,84 @@ async function upload(file) {
 }
 
 let lastVideo;
+// ---------------- Twitch: title, category, tags, stream key (Twitch has no thumbnails or scheduled streams)
+let twitchMode = false, tw = null;
+async function loadTwitch() {
+  const m = $('#main');
+  if (!connected) {
+    m.innerHTML = '<div class="notice"><b>Connect Twitch</b> on the <b>OBSplit Setup</b> panel to change your title, category and tags here.</div>';
+    return;
+  }
+  try { tw = await api('/api/tw/channel'); } catch (e) { m.innerHTML = '<div class="notice"></div>'; $('.notice').textContent = e.message; return; }
+  m.innerHTML = `
+    <div><label>Title <span id="tc"></span></label><input id="title" type="text" maxlength="140"></div>
+    <div class="catwrap"><label>Category</label><input id="catq" type="text" placeholder="Search for a game or category" autocomplete="off"><div id="catlist" class="catlist" hidden></div></div>
+    <div><label>Tags (comma separated, up to 10, letters and numbers only)</label><input id="tags" type="text"></div>
+    <div id="saveBar"><button id="save" class="primary" disabled>Save changes</button><button id="undo" disabled>Undo</button>
+      <span id="saved" class="muted small"></span></div>
+    <div class="keybox" id="twKey"></div>`;
+  let catId = tw.game_id, catName = tw.game_name;
+  const fillTw = () => { $('#title').value = tw.title; $('#catq').value = tw.game_name; $('#tags').value = (tw.tags || []).join(', '); catId = tw.game_id; catName = tw.game_name; };
+  const vals = () => ({ title: $('#title').value.trim(), game_id: catId, tags: $('#tags').value.split(',').map(s => s.trim()).filter(Boolean) });
+  const twDirty = () => {
+    const v = vals();
+    const changed = v.title !== tw.title || v.game_id !== tw.game_id || v.tags.join(',') !== (tw.tags || []).join(',');
+    $('#save').disabled = $('#undo').disabled = !changed;
+    $('#tc').textContent = v.title.length + '/140';
+  };
+  fillTw(); twDirty();
+  for (const id of ['title', 'tags']) $('#' + id).addEventListener('input', twDirty);
+  let t = null;
+  $('#catq').addEventListener('input', () => {
+    clearTimeout(t);
+    const q = $('#catq').value.trim();
+    if (!q) { $('#catlist').hidden = true; return; }
+    t = setTimeout(async () => {
+      let d; try { d = await api('/api/tw/categories?q=' + encodeURIComponent(q)); } catch (e) { return; }
+      const l = $('#catlist'); l.innerHTML = '';
+      for (const c of d.categories) {
+        const row = el('div'); if (c.art) { const i = el('img'); i.src = c.art; row.appendChild(i); }
+        row.appendChild(el('span', null, c.name));
+        row.onclick = () => { catId = c.id; catName = c.name; $('#catq').value = c.name; l.hidden = true; twDirty(); };
+        l.appendChild(row);
+      }
+      l.hidden = !d.categories.length;
+    }, 300);
+  });
+  $('#catq').addEventListener('blur', () => setTimeout(() => { $('#catlist').hidden = true; $('#catq').value = catName; }, 200));
+  $('#undo').onclick = () => { fillTw(); twDirty(); };
+  $('#save').onclick = async () => {
+    $('#save').disabled = true;
+    try { tw = { ...tw, ...(await api('/api/tw/channel', vals())) }; fillTw(); twDirty(); toast('Saved to Twitch'); $('#saved').textContent = 'Saved ' + fmtTime(Date.now()); }
+    catch (e) { toast(e.message, true); twDirty(); }
+  };
+  const kb = $('#twKey');
+  kb.appendChild(el('div', 'sec', 'Stream key (what OBS sends to)'));
+  kb.appendChild(el('div', tw.key_in_obs ? 'ok' : 'warn', tw.key_in_obs ? 'OBS is set to stream to Twitch.' : 'OBS isn\'t set to your Twitch stream key yet.'));
+  const use = el('button', null, tw.key_in_obs ? 'Put my Twitch key in OBS again' : 'Use my Twitch key in OBS');
+  use.title = 'Puts your Twitch stream key into OBS (Settings → Stream). The key goes from Twitch straight into OBS.';
+  use.onclick = async () => { use.disabled = true; try { await api('/api/tw/use-key', {}); toast('OBS now streams to Twitch'); loadTwitch(); } catch (e) { toast(e.message, true); use.disabled = false; } };
+  use.style.marginTop = '6px'; kb.appendChild(use);
+}
+
+function setMode(platform) {
+  twitchMode = platform === 'twitch';
+  platformSwitch($('#plat'), platform);
+  $('#pick').classList.toggle('grow-hide', twitchMode); $('#newBtn').classList.toggle('grow-hide', twitchMode);
+  $('#reload').title = twitchMode ? 'Reload from Twitch' : 'Reload from YouTube';
+  $('#reload').onclick = () => twitchMode ? loadTwitch() : loadList(cur);
+}
+
 connect(ev => {
   if (ev.type === 'hello' || ev.type === 'settings') {
     const was = connected; connected = ev.connected;
+    if (ev.platform) setMode(ev.platform);
     if (ev.status) statusPill($('#pill'), ev.status);
+    if (twitchMode) { if (ev.type === 'hello' || was !== connected) loadTwitch(); return; }
     if (ev.type === 'hello' || was !== connected) { lastVideo = ev.status && ev.status.video; loadList(); }
   } else if (ev.type === 'status') {
     statusPill($('#pill'), ev); connected = ev.connected;
+    if (twitchMode) return;
     if (ev.video !== lastVideo) { lastVideo = ev.video; if ($('#save') && !$('#save').disabled) return; loadList(ev.video); }
   } else if (ev.type === 'disconnected') statusPill($('#pill'), { state: 'disconnected' });
 });

@@ -83,7 +83,40 @@ function liveSocket(path, onEvent, onDown) {
   };
   open();
 }
-function connect(onEvent) { liveSocket('/events', onEvent, () => onEvent({ type: 'disconnected' })); }
+function connect(onEvent) {
+  liveSocket('/events', ev => {
+    if (ev.type === 'platform') { if (!window._switching) location.reload(); return; }   // switched in another panel
+    onEvent(ev);
+  }, () => onEvent({ type: 'disconnected' }));
+}
+
+// The YouTube / Twitch buttons. Switching changes Chat, Stream Info, Stats and Setup everywhere at once;
+// Scenes+, Sources+ and Audio+ are the same for both.
+const PLATFORM_LOGOS = {
+  youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.6 12 4.6 12 4.6s-7 0-8.9.5A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12a31 31 0 0 0 .5 4.8 3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-4.8 31 31 0 0 0-.5-4.8zM9.8 15.1V8.9l5.4 3.1z"/></svg>',
+  twitch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4.3 2 2.8 5.8v15.4h5.3V24h3l2.8-2.8h4.3l5.8-5.8V2zm16.5 12.4-3.3 3.3h-5.3l-2.8 2.8v-2.8H5V4h15.8zM17.5 7.4v5.8h-1.9V7.4zm-5.3 0v5.8h-1.9V7.4z"/></svg>',
+};
+function platformSwitch(box, current) {
+  if (!box) return;
+  box.className = 'plat'; box.innerHTML = '';
+  for (const p of ['youtube', 'twitch']) {
+    const b = el('button', p + (p === current ? ' on' : ''));
+    b.innerHTML = PLATFORM_LOGOS[p];
+    b.title = p === 'youtube' ? 'YouTube' : 'Twitch';
+    b.onclick = async () => {
+      if (p === current || window._switching) return;
+      window._switching = true;
+      try {
+        const r = await api('/api/settings', { platform: p });   // also points OBS's stream key at this platform
+        if (r.note) sessionStorage.setItem('obsplit-note', r.note);
+      } catch (e) { toast(e.message, true); }
+      location.reload();
+    };
+    box.appendChild(b);
+  }
+}
+// a message from a YouTube / Twitch switch, shown after the panel reloads
+(() => { const n = sessionStorage.getItem('obsplit-note'); if (n) { sessionStorage.removeItem('obsplit-note'); setTimeout(() => toast(n), 300); } })();
 
 // Reload this panel by itself when the panel files are updated (never while typing or in a popup).
 (function autoReload() {
@@ -106,7 +139,7 @@ function connect(onEvent) { liveSocket('/events', onEvent, () => onEvent({ type:
 function statusPill(pill, st) {
   const map = {
     live: ['live', 'LIVE'], upcoming: ['upcoming', 'Upcoming'], watching: ['watching', 'Watching'],
-    offline: ['', 'Offline'], ended: ['', 'Stream ended'], nochannel: ['', 'Setup needed'],
+    offline: ['', 'Offline'], ended: ['', 'Stream ended'], nochannel: ['', 'Setup needed'], chat: ['ok', 'Chat'],
     error: ['reconnect', 'Reconnecting…'], starting: ['', 'Starting…'], disconnected: ['reconnect', 'Reconnecting…'],
   };
   const [cls, label] = map[st.state] || ['', st.state || '…'];

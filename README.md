@@ -2,7 +2,7 @@
 
 **Make OBS Studio feel like XSplit.**
 
-OBSplit adds a set of panels to OBS Studio for people coming from XSplit: one-click game, Discord and screen-region sources, scene thumbnails, a simpler audio mixer that keeps your voice on top, and a full YouTube toolkit (set up streams, chat, moderation, title and thumbnail editing while live, and stream stats), all without opening a browser.
+OBSplit adds a set of panels to OBS Studio for people coming from XSplit: one-click game, Discord and screen-region sources, scene thumbnails, a simpler audio mixer that keeps your voice on top, and a full YouTube and Twitch toolkit (set up streams, chat, moderation, title and thumbnail editing while live, and stream stats), all without opening a browser.
 
 It isn't an OBS plugin. Everything uses features OBS already has: custom browser docks, the built-in Lua scripting and the built-in WebSocket server. A small local helper program runs while OBS is open and closes itself after OBS closes. If it ever stops, OBS restarts it within a few seconds, and the panels keep their content while it reconnects.
 
@@ -36,8 +36,11 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
   - Volumes you set for a game are remembered per game.
 - **This scene** shows only what's in the current scene (plus mic and desktop audio). Sources that can't make sound are tucked away, including videos whose soundtrack turns out to be silent.
 
-### YouTube
-- **YT Chat**, a Chatty-style chat:
+### YouTube and Twitch
+Chat+, Stream Info and Stats+ have a **YouTube** and a **Twitch** button at the top. Clicking one switches all three (and the account part of OBSplit Setup) to that platform, and points OBS's stream key at it, so **Start Streaming** goes where you're looking (never while you're live). Scenes+, Sources+ and Audio+ are the same for both.
+
+#### YouTube
+- **Chat+**, a Chatty-style chat:
   - every message in real time (not the filtered "Top chat"), with badges, emoji, Super Chats, stickers, memberships and gifted memberships as cards
   - a **FIRST** tag on someone's first message ever in your chat
   - your name and chosen words highlighted, plus a filter box
@@ -46,12 +49,18 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
   - Tab completes @names
 - **Set up a new stream without a browser (+ New):** title, description, category, tags, visibility, "go live when I press Start Streaming" or schedule for later, Made for Kids, auto-start/stop, latency and DVR, pre-filled from your last stream. It's linked to your stream key automatically, so **Start Streaming in OBS goes straight live**.
 - **Use my YouTube stream key in OBS:** one click puts your reusable YouTube stream key into OBS's stream settings (or creates one). The key goes from YouTube straight into OBS; it's never shown.
-- **YT Stream Info:** picks your live or next scheduled stream automatically. Edit the **title, description, category, visibility, tags and thumbnail at any time, including while live.** Drag and drop a thumbnail to upload it.
-- **YT Stats:** viewers (and peak), uptime, likes, chat per minute, chatters, first-timers, Super Chat totals, new members, **stream health** with YouTube's warnings, and API usage.
+- **Stream Info:** picks your live or next scheduled stream automatically. Edit the **title, description, category, visibility, tags and thumbnail at any time, including while live.** Drag and drop a thumbnail to upload it.
+- **Stats+:** viewers (and peak), uptime, likes, chat per minute, chatters, first-timers, Super Chat totals, new members, **stream health** with YouTube's warnings, and API usage.
+
+#### Twitch
+- **Chat+:** Twitch chat in real time with badges (broadcaster, mod, VIP, subscriber), Twitch emotes, bits, and cards for subs, gifted subs, raids and new follows. First-time chatters are tagged. Delete, time-out, ban, unban and make moderator, same as for YouTube. Chat can be read without signing in by entering a channel name.
+- **Stream Info:** change your **title, category** (with search) and **tags** at any time, including while live. **Use my Twitch key in OBS** puts your stream key into OBS without copy-pasting.
+- **Stats+:** viewers (and peak), uptime, followers (and new this session), chat per minute, chatters, bits, new subs and total subscribers.
+- Signing in takes a few seconds: click **Connect Twitch** in OBSplit Setup and enter the code shown at twitch.tv/activate. No developer setup, and no daily limits.
 
 ### OBSplit Setup
-- The one-time YouTube connection, step by step (see below), and your channel for reading chat before you connect.
-- **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed with M-Lab's open speed test (or type in your speed from any test) so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. Switching the video format takes effect the next time OBS starts.
+- Connecting YouTube (one-time setup, see below) or Twitch (enter a short code), and the channel to read chat from before you connect.
+- **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. With Twitch selected it uses Twitch's limits instead (H.264, up to 6 Mbps at 1080p). OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed with M-Lab's open speed test (or type in your speed from any test) so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. Switching the video format takes effect the next time OBS starts.
 - **Lock my panel layout:** arrange your panels, click Lock, and close OBS once. From then on OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a crash, a reset or a connected account's separate layout. **Update my saved layout** after rearranging on purpose.
 
 ### Auto Audio Setup (OBS script)
@@ -70,7 +79,7 @@ New media, browser and capture-card sources automatically get **Monitor and Outp
 1. Download **`OBSplit-Setup-x.y.z.exe`** from [Releases](https://github.com/ShinMikite/OBSplit/releases).
 2. **Close OBS**, then run the installer. No admin rights are needed; it installs to `%LOCALAPPDATA%\OBSplit`.
    Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Click **More info → Run anyway**.
-3. Start OBS. The new panels are in the **Docks** menu: **YT Chat, YT Stream Info, YT Stats, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like.
+3. Start OBS. The new panels are in the **Docks** menu: **Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like.
 4. In **OBSplit Setup**, click **Lock my panel layout** once you're happy with the arrangement, and connect YouTube if you want the YouTube features.
 
 ### What the installer changes in OBS
@@ -93,13 +102,13 @@ Open the **OBSplit Setup** panel. It links straight to each page:
 2. Set up the sign-in screen (External) and **Publish** it. Otherwise Google signs you out every 7 days. If **Publish app** is greyed out, add your YouTube channel link as the home page and privacy policy link on the **Branding** page, with `youtube.com` as an authorized domain.
 3. Create an OAuth client of type **Desktop app**, download the JSON and drop it on the setup panel.
 4. Click **Connect YouTube account**. Google will say the app isn't verified; that's expected for your own app (**Advanced → Go to OBSplit**).
-5. In **YT Stream Info**, click **+ New** and use **Use in OBS** in the stream key box. From then on, set up each stream there and press **Start Streaming** in OBS.
+5. In **Stream Info**, click **+ New** and use **Use in OBS** in the stream key box. From then on, set up each stream there and press **Start Streaming** in OBS.
 
 Each user brings their own key, so everyone gets their own free daily allowance (10,000 units). Reading chat uses none. Typical costs: create a stream about 150, send a message 20, delete 25, time-out or ban 200, save stream info 51, thumbnail 50, stats about 240 an hour while live. A normal stream uses roughly 1,000–2,500.
 
 ## Privacy
 
-- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, and to [M-Lab](https://www.measurementlab.net/)'s open speed test only when you click **Test my upload** (10 seconds of random data to a nearby M-Lab server). M-Lab publishes every test result, including your IP address, as public research data; if you'd rather not, type your upload speed in instead.
+- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, Twitch (when you use the Twitch features), and to [M-Lab](https://www.measurementlab.net/)'s open speed test only when you click **Test my upload** (10 seconds of random data to a nearby M-Lab server). M-Lab publishes every test result, including your IP address, as public research data; if you'd rather not, type your upload speed in instead.
 - Chat is read from YouTube's public live-chat page, the same way the pop-out chat works.
 - Your YouTube stream key goes from YouTube straight into OBS's own stream settings. OBSplit never shows it or saves it anywhere else.
 - Your sign-in, settings and chat history are stored in `%LOCALAPPDATA%\OBSplit\app\data`. The uninstaller asks whether to delete them.

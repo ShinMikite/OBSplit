@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import obslink  # noqa: E402
 import layoutguard  # noqa: E402
 import quality  # noqa: E402
+import twitch  # noqa: E402
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(APP_DIR, "web")
@@ -651,7 +652,7 @@ class Hub:
 
     def reset_session(self):
         self.session = {"started": now_ms(), "messages": 0, "chatters": set(), "times": deque(),
-                        "superchats": {}, "members": 0, "gifts": 0, "first_timers": 0}
+                        "superchats": {}, "members": 0, "gifts": 0, "first_timers": 0, "follows": 0}
 
     # --- pub/sub
     def subscribe(self):
@@ -706,36 +707,8 @@ class Hub:
     def _handle_action(self, video_id, a, hist):
         if "addChatItemAction" in a:
             ev = parse_item(a["addChatItemAction"].get("item") or {})
-            if not ev:
-                return
-            with self.lock:
-                if ev["id"] in self.by_id:
-                    return
-            first = self.store.record(video_id, ev)
-            ev["first"] = bool(first and not hist)
-            ev["hist"] = hist
-            s = self.session
-            if ev["kind"] != "system":
-                s["messages"] += 1
-                s["chatters"].add(ev["ch"])
-                if not hist:
-                    s["times"].append(time.time())
-                if ev["first"]:
-                    s["first_timers"] += 1
-            if ev["kind"] in ("superchat", "sticker") and ev.get("amount"):
-                m = re.match(r"^\s*([^\d\s.,]*)\s*([\d.,]+)\s*([^\d\s.,]*)", ev["amount"])
-                if m:
-                    cur = (m.group(1) or m.group(3) or "?").strip()
-                    try:
-                        val = float(m.group(2).replace(",", ""))
-                        s["superchats"][cur] = round(s["superchats"].get(cur, 0) + val, 2)
-                    except ValueError:
-                        pass
-            if ev["kind"] == "member":
-                s["members"] += 1
-            if ev["kind"] == "gift":
-                s["gifts"] += 1
-            self.publish(ev)
+            if ev:
+                self.add(video_id, ev, hist)
         elif "markChatItemAsDeletedAction" in a or "removeChatItemAction" in a:
             d = a.get("markChatItemAsDeletedAction") or a.get("removeChatItemAction")
             self._mark_deleted(id_=d.get("targetItemId"))
@@ -749,6 +722,40 @@ class Hub:
                 ev["id"] = d.get("targetItemId") or ev["id"]
                 ev["type"] = "replace"
                 self.publish(ev)
+
+    def add(self, video_id, ev, hist=False):
+        """One chat message from any platform: remember it, count it for the stats, and send it to the panels."""
+        with self.lock:
+            if ev["id"] in self.by_id:
+                return
+        first = self.store.record(video_id, ev)
+        if ev.get("plat") == "tw":          # Twitch says itself whether this is someone's first message
+            ev["first"] = bool(ev.get("first") and not hist)
+        else:
+            ev["first"] = bool(first and not hist)
+        ev["hist"] = hist
+        s = self.session
+        if ev["kind"] not in ("system", "follow"):
+            s["messages"] += 1
+            s["chatters"].add(ev["ch"])
+            if not hist:
+                s["times"].append(time.time())
+            if ev["first"]:
+                s["first_timers"] += 1
+        if ev["kind"] in ("superchat", "sticker") and ev.get("amount"):
+            m = re.match(r"^\s*([^\d\s.,]*)\s*([\d.,]+)\s*([^\d\s.,]*)", ev["amount"])
+            if m:
+                cur = (m.group(1) or m.group(3) or "?").strip()
+                try:
+                    val = float(m.group(2).replace(",", ""))
+                    s["superchats"][cur] = round(s["superchats"].get(cur, 0) + val, 2)
+                except ValueError:
+                    pass
+        if ev["kind"] == "member":
+            s["members"] += 1
+        if ev["kind"] == "gift":
+            s["gifts"] += 1
+        self.publish(ev)
 
     def _mark_deleted(self, id_=None, ch=None):
         with self.lock:
@@ -1042,7 +1049,20 @@ class App:
         self.stats = StatsWorker(self.hub, self.google)
         self.categories = None
         self.obs = obslink.ObsLink(self.config, log)
-        self.quality = quality.Quality(self.obs, log, lambda: (self.hub.stats or {}).get("health"))
+        self.quality = quality.Quality(self.obs, log, lambda: (self.cur_hub().stats or {}).get("health"),
+                                       platform=lambda: self.platform())
+        self.twhub = Hub(self.config, None, self.store)          # Twitch chat and status, same shape as YouTube's
+        self.twitch = twitch.Twitch(DATA_DIR, self.config, log, self.twhub, self.obs)
+
+    def platform(self):
+        return "twitch" if self.config.get("platform") == "twitch" else "youtube"
+
+    def cur_hub(self):
+        """The chat/status hub of the platform picked with the YouTube / Twitch buttons."""
+        return self.twhub if self.platform() == "twitch" else self.hub
+
+    def cur_connected(self):
+        return self.twitch.connected() if self.platform() == "twitch" else self.google.connected()
 
 
 APP = None
@@ -1143,10 +1163,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if p == "/api/user":
                 ch = (qs.get("ch") or [""])[0]
                 d = APP.store.user(ch)
-                cur_vid = APP.hub.status.get("video")
-                with APP.hub.lock:
-                    sess = [e for e in APP.hub.recent if e.get("ch") == ch]
-                    live = dict(APP.hub.by_id)
+                hub = APP.twhub if ch.startswith("tw:") else APP.hub
+                cur_vid = APP.twitch.session_key() if ch.startswith("tw:") else APP.hub.status.get("video")
+                with hub.lock:
+                    sess = [e for e in hub.recent if e.get("ch") == ch]
+                    live = dict(hub.by_id)
+                d["platform"] = "twitch" if ch.startswith("tw:") else "youtube"
+                d["login"] = next((e.get("login") for e in reversed(sess) if e.get("login")), None)
                 session = []
                 for h in reversed([h for h in d["history"] if h["video"] == cur_vid]):
                     e = live.get(h["id"])
@@ -1157,15 +1180,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 d["history"] = [h for h in d["history"] if h["video"] != cur_vid]
                 last = sess[-1] if sess else None
                 d.update(ch=ch, photo=last and last.get("photo"), badges=last and last.get("badges"),
-                         name=(last and last.get("name")) or d["name"], banned=ch in APP.hub.bans)
+                         name=(last and last.get("name")) or d["name"], banned=ch in hub.bans or ch.startswith("tw:"))
                 return self.send_json(d)
             if p == "/api/stats":
-                s = APP.hub.session
-                return self.send_json({**APP.hub.stats, "messages": s["messages"],
-                                       "chatters": len(s["chatters"]), "rate": APP.hub.chat_rate(),
+                hub = APP.cur_hub()
+                s = hub.session
+                return self.send_json({**hub.stats, "messages": s["messages"],
+                                       "chatters": len(s["chatters"]), "rate": hub.chat_rate(),
                                        "superchats": s["superchats"], "members": s["members"], "gifts": s["gifts"],
-                                       "first_timers": s["first_timers"], "quota": APP.quota.used(),
-                                       "status": APP.hub.status})
+                                       "first_timers": s["first_timers"], "follows": s.get("follows", 0),
+                                       "quota": APP.quota.used(), "status": hub.status, "platform": APP.platform(),
+                                       "connected": APP.cur_connected()})
+            if p == "/api/tw/channel":
+                return self.send_json({**APP.twitch.get_channel(), "key_in_obs": APP.twitch.stream_key_in_obs(),
+                                       "login": APP.twitch.t.get("login")})
+            if p == "/api/tw/categories":
+                return self.send_json({"categories": APP.twitch.search_categories((qs.get("q") or [""])[0])})
             if p == "/api/broadcasts":
                 return self.send_json(self.broadcasts())
             if p == "/api/yt/streams":
@@ -1177,6 +1207,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_text("not found", 404, "text/plain")
         except ApiError as e:
             return self.send_json({"error": e.message, "reason": e.reason}, 400)
+        except twitch.TwitchError as e:
+            return self.send_json({"error": e.message}, 400)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
         except Exception as e:
@@ -1201,8 +1233,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def state(self):
         c = APP.config.public()
-        return {"status": APP.hub.status, "config": c, "has_client": APP.google.client() is not None,
-                "connected": APP.google.connected(), "quota": APP.quota.used()}
+        plat = APP.platform()
+        c["platform"] = plat
+        tw = APP.twitch.info()
+        if plat == "twitch":
+            # panels compare messages against "my channel": use the Twitch account while Twitch is picked
+            c["channel_id"] = ("tw:" + tw["user_id"]) if tw["user_id"] else ""
+            c["channel_title"] = tw["name"] or tw["channel"] or ""
+            c["channel_handle"] = tw["login"] or tw["channel"] or ""
+        return {"status": APP.cur_hub().status, "config": c, "platform": plat, "twitch": tw,
+                "has_client": APP.google.client() is not None, "yt_connected": APP.google.connected(),
+                "connected": APP.cur_connected(), "quota": APP.quota.used()}
 
     # --- live updates: WebSocket (used by the panels; it doesn't use up the browser's limit of 6
     #     connections per address, so button clicks never have to wait) or Server-Sent Events (fallback)
@@ -1251,7 +1292,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def sse(self):
-        q, snap = APP.hub.subscribe()
+        hub = APP.cur_hub()
+        q, snap = hub.subscribe()
         try:
             if not self._stream_open():
                 return
@@ -1259,15 +1301,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             while True:
                 try:
                     ev = q.get(timeout=15)
-                    if ev.get("type") in ("status", "settings"):
-                        ev = {**ev, **{"connected": APP.google.connected()}}
+                    if ev.get("type") == "settings":
+                        ev = {**ev, **self.state()}
+                    elif ev.get("type") == "status":
+                        ev = {**ev, "connected": APP.cur_connected()}
                     self._stream_send(ev)
                 except queue.Empty:
                     self._stream_ping()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
-            APP.hub.unsubscribe(q)
+            hub.unsubscribe(q)
             self.close_connection = True
 
     def serve_mixcheck(self):
@@ -1424,9 +1468,56 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if b.get("channel"):
                     cid, title = resolve_channel(b["channel"])
                     allowed.update(channel_id=cid, channel_title=title)
+                if "twitch_channel" in b:
+                    t = (b["twitch_channel"] or "").strip()
+                    m = re.search(r"(?:twitch\.tv/)?@?([A-Za-z0-9_]{3,25})/?$", t)
+                    if t and not m:
+                        raise ApiError(400, "That doesn't look like a Twitch channel name.")
+                    allowed["twitch_channel"] = m.group(1).lower() if t else ""
+                    APP.twitch.wake.set()
+                switched = "platform" in b and b["platform"] in ("youtube", "twitch") and b["platform"] != APP.platform()
+                if "platform" in b and b["platform"] in ("youtube", "twitch"):
+                    allowed["platform"] = b["platform"]
                 APP.config.update(**allowed)
                 APP.chat.wake.set()
-                APP.hub.publish({"type": "settings", **self.state()})
+                note = None
+                if switched:
+                    note = self.switch_stream_key(b["platform"])
+                    # every open panel reconnects so it shows the other platform
+                    for h in (APP.hub, APP.twhub):
+                        h.publish({"type": "platform", "platform": b["platform"]})
+                else:
+                    APP.cur_hub().publish({"type": "settings"})
+                return self.send_json({"ok": True, "note": note})
+            if p == "/api/tw/connect":
+                return self.send_json(APP.twitch.start_login())
+            if p == "/api/tw/cancel":
+                APP.twitch.cancel_login()
+                APP.twhub.publish({"type": "settings"})
+                return self.send_json({"ok": True})
+            if p == "/api/tw/disconnect":
+                APP.twitch.disconnect()
+                APP.twhub.publish({"type": "settings"})
+                return self.send_json({"ok": True})
+            if p == "/api/tw/channel":
+                return self.send_json(APP.twitch.set_channel(self.jbody()))
+            if p == "/api/tw/use-key":
+                return self.send_json(APP.twitch.use_stream_key())
+            if APP.platform() == "twitch" and p in ("/api/send", "/api/delete", "/api/ban", "/api/unban", "/api/mod"):
+                b = self.jbody()
+                if p == "/api/send":
+                    APP.twitch.send(b.get("text"))
+                elif p == "/api/delete":
+                    mid = b.get("id") or ""
+                    if mid.startswith("follow-"):
+                        raise ApiError(400, "That's a follow notice, not a message.")
+                    APP.twitch.delete_message(mid)
+                elif p == "/api/ban":
+                    APP.twitch.ban(b.get("ch"), int(b.get("seconds") or 0))
+                elif p == "/api/unban":
+                    APP.twitch.unban(b.get("ch"))
+                else:
+                    APP.twitch.add_mod(b.get("ch"))
                 return self.send_json({"ok": True})
             if p == "/api/quality":
                 b = self.jbody()
@@ -1450,7 +1541,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json({"ok": True, **r, "status": APP.quality.status()})
             if p == "/api/open":
                 url = self.jbody().get("url") or ""
-                if not re.match(r"^https://(console\.cloud\.google\.com|studio\.youtube\.com|www\.youtube\.com)/", url):
+                if not re.match(r"^https://(console\.cloud\.google\.com|studio\.youtube\.com|www\.youtube\.com|www\.twitch\.tv)/", url):
                     raise ApiError(400, "That link can't be opened from here.")
                 webbrowser.open(url)
                 return self.send_json({"ok": True})
@@ -1576,6 +1667,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_text("not found", 404, "text/plain")
         except ApiError as e:
             return self.send_json({"error": e.message, "reason": e.reason}, 400)
+        except twitch.TwitchError as e:
+            return self.send_json({"error": e.message}, 400)
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
         except Exception as e:
@@ -1641,7 +1734,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
         APP.obs.request("SetStreamServiceSettings", {"streamServiceType": "rtmp_common", "streamServiceSettings": {
             "service": "YouTube - RTMPS", "server": self.YT_RTMPS, "key": key}})
         log("OBS stream key set from YouTube stream", sid)   # never log the key itself
+        APP.config.update(yt_stream_id=sid)                   # so switching back to YouTube can use it again
         return {"streamId": sid}
+
+    def switch_stream_key(self, plat):
+        """Clicking the YouTube / Twitch button also points OBS at that platform, so Start Streaming goes to the
+        platform you're looking at. Never while streaming. Returns a short note for the panel."""
+        try:
+            if APP.obs.request("GetStreamStatus").get("outputActive"):
+                return "You're live, so OBS keeps streaming where it is. Switch again after you stop."
+        except Exception:
+            return "OBS isn't connected, so its stream key wasn't changed."
+        try:
+            if plat == "twitch":
+                if not APP.twitch.connected():
+                    return "Connect Twitch in OBSplit Setup so OBS can stream to Twitch."
+                APP.twitch.use_stream_key()
+                return "OBS now streams to Twitch."
+            sid = APP.config.get("yt_stream_id") or (APP.config.get("last_broadcast") or {}).get("streamId")
+            if not APP.google.connected():
+                return "Connect YouTube in OBSplit Setup so OBS can stream to YouTube."
+            if not sid:
+                return "Pick a stream key in Stream Info (+ New) so OBS can stream to YouTube."
+            self.use_stream_key({"streamId": sid})
+            return "OBS now streams to YouTube."
+        except (ApiError, twitch.TwitchError) as e:
+            return "Couldn't switch OBS's stream key: " + e.message
+        except Exception as e:
+            log("stream key switch failed", repr(e)[:200])
+            return "Couldn't switch OBS's stream key."
 
     def new_broadcast(self, b):
         title = (b.get("title") or "").strip()
@@ -1788,6 +1909,7 @@ def main():
     APP.chat.start()
     APP.stats.start()
     APP.quality.start()
+    APP.twitch.start()
     if "--with-obs" in sys.argv:
         threading.Thread(target=obs_watchdog, daemon=True, name="watchdog").start()
     threading.Thread(target=heartbeat, daemon=True, name="heartbeat").start()

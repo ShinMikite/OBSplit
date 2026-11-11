@@ -41,6 +41,8 @@ PRESETS = {
     "sharp": {"height": 1440, "label": "Sharper on YouTube (1440p)"},
     "light": {"height": 720, "label": "Light (720p)"},
 }
+# Twitch takes H.264 only through OBS's normal stream output and caps most channels at about 6 Mbps / 1080p
+TWITCH_TARGET = {720: 4500, 1080: 6000}
 UPLOAD_SHARE = 0.7       # use at most this much of the measured upload, leaving room for everything else
 AUDIO_KBPS = 160         # OBS's YouTube service maximum
 
@@ -244,8 +246,8 @@ def mlab_upload(seconds=10.0, version="0.1"):
 
 
 class Quality:
-    def __init__(self, obs, log, youtube_health):
-        self.obs, self.log, self.youtube_health = obs, log, youtube_health
+    def __init__(self, obs, log, youtube_health, platform=lambda: "youtube"):
+        self.obs, self.log, self.youtube_health, self.platform = obs, log, youtube_health, platform
         self.lock = threading.Lock()
         self.d = _load()
         self.d.setdefault("auto", True)
@@ -345,10 +347,17 @@ class Quality:
     def plan(self, preset, cur=None):
         p = PRESETS[preset]
         h = p["height"]
-        enc, codec = self.best_encoder()
-        fam = _family(codec)
-        kbps = TARGET[fam][h]
         notes = []
+        if self.platform() == "twitch":
+            enc, codec = self.best_encoder(prefer=("h264",))
+            if h > 1080:
+                h = 1080
+                notes.append("Twitch doesn't take 1440p from OBS's normal stream, so this is the same as Recommended.")
+            kbps = TWITCH_TARGET[h]
+        else:
+            enc, codec = self.best_encoder()
+            kbps = TARGET[_family(codec)][h]
+        fam = _family(codec)
         up = self.d.get("upload_kbps")
         if up:
             cap = int(up * UPLOAD_SHARE / 500) * 500
@@ -358,7 +367,7 @@ class Quality:
         floor = MINIMUM[fam][h]
         too_slow = bool(up) and kbps < floor
         if too_slow:
-            notes = [f"Your upload is too slow for {h}p: YouTube needs at least {floor / 1000:g} Mbps for it, "
+            notes = [f"Your upload is too slow for {h}p: it needs at least {floor / 1000:g} Mbps, "
                      f"and only about {int(up * UPLOAD_SHARE / 500) * 500 / 1000:g} Mbps is safe on your connection."]
             kbps = floor
         if preset == "recommended" and self.d.get("adjusted_kbps") and self.d.get("preset") == "recommended":
@@ -368,9 +377,10 @@ class Quality:
         bw, bh = (cur or {}).get("base") or [1920, 1080]
         bw, bh = bw or 1920, bh or 1080
         ow = int(round(h * bw / bh / 2)) * 2
-        if preset == "sharp" and not up:
+        twitch = self.platform() == "twitch"
+        if preset == "sharp" and not up and not twitch:
             notes.append("Needs roughly 20 Mbps or more of upload. Test your upload first if you're not sure.")
-        if preset == "sharp" and codec == "h264":
+        if preset == "sharp" and codec == "h264" and not twitch:
             notes.append("Your graphics card can't send AV1 or HEVC, so 1440p needs a lot of upload with H.264.")
         return {"preset": preset, "label": p["label"], "encoder": enc, "codec": codec,
                 "codec_name": CODEC_NAMES[codec], "maker": _maker(enc), "width": ow, "height": h, "fps": 60,
@@ -402,7 +412,7 @@ class Quality:
                 "upload_source": d.get("upload_source") or ("test" if d.get("upload_kbps") else None),
                 "auto": d.get("auto", True), "has_backup": bool(d.get("backup")),
                 "restart_needed": restart, "report": d.get("report"),
-                "testing": self.testing}
+                "testing": self.testing, "platform": self.platform()}
 
     @staticmethod
     def _describe(cur):

@@ -20,8 +20,8 @@ Where XSplit's features live in OBS Studio (with OBSplit installed), and setting
 | Group sources | Select several → right-click → **Group Selected Items** |
 | Lock a source | Click the 🔒 next to it in Sources |
 | Run the setup wizard | **Tools → Auto-Configuration Wizard** |
-| Edit YouTube title/thumbnail while live | **YT Stream Info** panel |
-| Read and moderate chat | **YT Chat** panel |
+| Edit YouTube title/thumbnail while live | **Stream Info** panel |
+| Read and moderate chat | **Chat+** panel |
 
 ## Panels: moving, resizing, combining
 
@@ -54,4 +54,4 @@ If you have an NVIDIA RTX card, stream with **NVIDIA NVENC H.264** instead of x2
 **Settings → Advanced → Stream Delay** is sometimes switched on by accident. Turn it off unless you need it; it adds lag between you and chat.
 
 ### YouTube
-**Settings → Stream → Service: YouTube - RTMPS → Connect Account**. Use **Manage Broadcast** (Controls panel) before going live. While live, edit everything in **YT Stream Info**.
+**Settings → Stream → Service: YouTube - RTMPS → Connect Account**. Use **Manage Broadcast** (Controls panel) before going live. While live, edit everything in **Stream Info**.

@@ -39,11 +39,20 @@
 </style>
 </head>
 <body>
-<div class="bar"><b>OBSplit setup</b><span class="grow"></span><span id="pill" class="pill"><span class="dot"></span>…</span></div>
+<div class="bar"><span id="plat"></span><b>OBSplit setup</b><span class="grow"></span><span id="pill" class="pill"><span class="dot"></span>…</span></div>
 <div id="main">
   <h2><span id="c6" class="chk">1</span> Stream quality</h2>
   <div class="box small" id="quality">Loading…</div>
 
+  <div id="twSteps" hidden>
+  <h2><span id="t1" class="chk">2</span> Connect Twitch</h2>
+  <div class="box small" id="tw1"></div>
+
+  <h2><span id="t2" class="chk">3</span> Twitch chat</h2>
+  <div class="box small" id="tw2"></div>
+  </div>
+
+  <div id="ytSteps">
   <h2><span id="c1" class="chk">2</span> Google API access (one time, about 5 minutes)</h2>
   <div id="s1"></div>
 
@@ -56,14 +65,15 @@
     <div class="row-flex" id="chanRow" style="margin-bottom:6px"><input id="chan" class="grow" placeholder="Your channel: @handle or channel link (only needed before step 3)"><button id="chanGo">Save</button></div>
     <div class="row-flex"><input id="watch" class="grow" placeholder="Paste a YouTube video/stream link to read another chat"><button id="watchGo">Watch</button><button id="watchMine">Back to my channel</button></div>
   </div>
+  </div>
 
-  <h2><span class="chk">5</span> Your panels</h2>
+  <h2><span id="c4" class="chk">5</span> Your panels</h2>
   <div class="box small">
     In OBS: <b>Docks → Custom Browser Docks…</b> (the installer adds these for you). Show or hide them from the <b>Docks</b> menu like any panel.
     <table style="margin-top:6px">
-      <tr><td>YT Chat</td><td><code>http://127.0.0.1:47821/chat</code></td></tr>
-      <tr><td>YT Stream Info</td><td><code>http://127.0.0.1:47821/info</code></td></tr>
-      <tr><td>YT Stats</td><td><code>http://127.0.0.1:47821/stats</code></td></tr>
+      <tr><td>Chat+</td><td><code>http://127.0.0.1:47821/chat</code></td></tr>
+      <tr><td>Stream Info</td><td><code>http://127.0.0.1:47821/info</code></td></tr>
+      <tr><td>Stats+</td><td><code>http://127.0.0.1:47821/stats</code></td></tr>
       <tr><td>Scenes+</td><td><code>http://127.0.0.1:47821/scenes</code></td></tr>
       <tr><td>Sources+</td><td><code>http://127.0.0.1:47821/sources</code></td></tr>
       <tr><td>Audio+</td><td><code>http://127.0.0.1:47821/audio</code></td></tr>
@@ -92,7 +102,7 @@ async function drawLayout(s) {
     locked: 'Locked' + (s.saved_at ? ' (saved ' + s.saved_at + ')' : '') + '. Your layout is put back every time OBS closes.' +
       (s.restores ? ' Fixed ' + s.restores + ' time' + (s.restores === 1 ? '' : 's') + (s.restored_at ? ', last ' + s.restored_at : '') + '.' : '') };
   $('#layoutState').textContent = msg[s.mode] || '';
-  $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : '6';
+  $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : String(stepNum().lock);
   const btns = $('#layoutBtns'); btns.innerHTML = '';
   const b = (label, action, cls) => { const x = el('button', cls, label); x.onclick = () => api('/api/obs/layout', { action }).then(drawLayout).catch(e => toast(e.message, true)); btns.appendChild(x); };
   if (s.mode === 'off') b('Lock my layout', 'lock', 'primary');
@@ -103,8 +113,58 @@ drawLayout();
 const L = (text, url) => `<span class="link" data-url="${url}">${text}</span>`;
 document.addEventListener('click', e => { const u = e.target.dataset && e.target.dataset.url; if (u) open(u); });
 
+// The YouTube / Twitch switch changes steps 2-4; Stream quality, Your panels and Lock layout are the same for both.
+const stepNum = () => st.platform === 'twitch' ? { panels: 4, lock: 5 } : { panels: 5, lock: 6 };
+
+function drawTwitch() {
+  const tw = st.twitch || {}, c = st.config || {};
+  $('#t1').className = 'chk' + (tw.connected ? ' done' : ''); $('#t1').textContent = tw.connected ? '✓' : '2';
+  const b1 = $('#tw1'); b1.innerHTML = '';
+  if (tw.connected) {
+    b1.appendChild(document.createTextNode('Connected as ')); b1.appendChild(el('b', null, tw.name || tw.login));
+    b1.appendChild(document.createTextNode('. '));
+    const d = el('span', 'link', 'Disconnect');
+    d.onclick = async () => { if (confirm('Disconnect Twitch from the panels?')) { try { await api('/api/tw/disconnect', {}); } catch (e) { toast(e.message, true); } } };
+    b1.appendChild(d);
+  } else if (tw.signing_in) {
+    b1.innerHTML = `<div>Your browser opened <span class="link" data-url="${tw.signing_in.uri}">twitch.tv/activate</span>. Enter this code there and click <b>Authorize</b>:</div>
+      <div style="font-size:1.8em;font-weight:700;letter-spacing:.12em;margin:6px 0">${tw.signing_in.code}</div>
+      <div class="muted">This page updates by itself when you're done.</div>`;
+    const cx = el('button', null, 'Cancel'); cx.style.marginTop = '6px';
+    cx.onclick = () => api('/api/tw/cancel', {}).catch(() => {}); b1.appendChild(cx);
+  } else {
+    const go = el('button', 'primary', 'Connect Twitch');
+    go.onclick = async () => {
+      go.disabled = true;
+      try { const r = await api('/api/tw/connect', {}); st.twitch = { ...tw, signing_in: r, sign_in_error: null }; open(r.uri); drawTwitch(); }
+      catch (e) { toast(e.message, true); go.disabled = false; }
+    };
+    b1.appendChild(go);
+    b1.appendChild(el('div', 'qnote', 'No setup needed: your browser opens twitch.tv/activate and you enter a short code. This lets the panels send chat messages, moderate, change your title and category, and show your stats.'));
+    if (tw.sign_in_error) b1.appendChild(el('div', 'qwarn', tw.sign_in_error));
+  }
+  const chanOk = !!(tw.connected || tw.channel);
+  $('#t2').className = 'chk' + (chanOk ? ' done' : ''); $('#t2').textContent = chanOk ? '✓' : '3';
+  const b2 = $('#tw2'); b2.innerHTML = '';
+  if (tw.connected) b2.appendChild(el('div', null, 'Nothing to do here. Chat follows your channel (twitch.tv/' + tw.login + ').'));
+  else {
+    b2.appendChild(el('div', null, tw.channel ? 'Reading chat from twitch.tv/' + tw.channel + ' without signing in. Connect Twitch above to send messages and moderate.'
+      : 'Enter a Twitch channel to read its chat without signing in, or connect Twitch above.'));
+    const r = el('div', 'row-flex'); r.style.marginTop = '6px';
+    const i = el('input', 'grow'); i.placeholder = 'Twitch channel name or link'; i.value = tw.channel || '';
+    const s = el('button', null, 'Save');
+    s.onclick = () => api('/api/settings', { twitch_channel: i.value }).then(() => toast('Twitch channel saved')).catch(e => toast(e.message, true));
+    r.append(i, s); b2.appendChild(r);
+  }
+}
+
 function draw() {
-  const has = st.has_client, con = st.connected, c = st.config || {};
+  const twitch = st.platform === 'twitch';
+  platformSwitch($('#plat'), st.platform || 'youtube');
+  $('#twSteps').hidden = !twitch; $('#ytSteps').hidden = twitch;
+  $('#c4').textContent = String(stepNum().panels); drawLayout();
+  if (twitch) { drawTwitch(); statusPill($('#pill'), st.status || {}); $('#quota').textContent = ''; return; }
+  const has = st.has_client, con = st.yt_connected != null ? st.yt_connected : st.connected, c = st.config || {};
   $('#c1').className = 'chk' + (has ? ' done' : ''); $('#c1').textContent = has ? '✓' : '2';
   $('#c2').className = 'chk' + (con ? ' done' : ''); $('#c2').textContent = con ? '✓' : '3';
   if (has) {

@@ -41,6 +41,15 @@ html, body { overflow-x: hidden; }
   gap: 3px; border-radius: 4px; }
 .ib:hover { color: var(--text); background: rgba(255,255,255,.07); }
 .ib.on { color: var(--text); }
+/* YouTube / Twitch switch */
+.plat { display: inline-flex; gap: 2px; padding: 1px; border: 1px solid var(--border); border-radius: 6px; }
+.plat button { border: 0; background: none; padding: 2px 5px; border-radius: 4px; color: var(--muted); display: inline-flex;
+  align-items: center; cursor: pointer; }
+.plat button svg { width: 18px; height: 18px; }
+.plat button:hover { color: var(--text); background: rgba(255,255,255,.07); }
+.plat button.on { background: rgba(255,255,255,.1); }
+.plat button.on.youtube { color: #ff3040; }
+.plat button.on.twitch { color: #a970ff; }
 .stale { opacity: .55; pointer-events: none; transition: opacity .2s; }
 @keyframes pulse { 50% { opacity: .35; } }
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-start;
