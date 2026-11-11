@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reinstalling or upgrading keeps OBSplit's scripts as they were in OBS (their order and any settings), instead of adding them again.
+
 ## 0.1.0 (2026-11-11)
 
 First release.

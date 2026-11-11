@@ -194,10 +194,13 @@ def set_scripts(add):
         except (OSError, ValueError):
             continue
         mods = data.setdefault("modules", {})
-        tool = [s for s in mods.get("scripts-tool", []) if "/obsplit/obs-scripts/" not in s.get("path", "").lower()]
+        tool = mods.get("scripts-tool", [])
         if add:
+            # keep scripts that are already there (with their settings and order); only add missing ones
             have = {os.path.basename(s.get("path", "")).lower() for s in tool}
-            tool += [{"path": p, "settings": {}} for p in paths if os.path.basename(p).lower() not in have]
+            tool = tool + [{"path": p, "settings": {}} for p in paths if os.path.basename(p).lower() not in have]
+        else:
+            tool = [s for s in tool if "/obsplit/obs-scripts/" not in s.get("path", "").lower()]
         mods["scripts-tool"] = tool
         tmp = sc + ".obsplit-tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
