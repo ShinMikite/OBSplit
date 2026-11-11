@@ -25,6 +25,7 @@ DOCKS = [("YT Chat", URL + "/chat"), ("YT Stream Info", URL + "/info"), ("YT Sta
          ("Scenes+", URL + "/scenes"), ("Sources+", URL + "/sources"), ("Audio+", URL + "/audio"),
          ("OBSplit Setup", URL + "/")]
 SCRIPTS = [os.path.join(APPDIR, "obs-scripts", "obsplit-launcher.lua"),
+           os.path.join(APPDIR, "obs-scripts", "obsplit-backup-launcher.lua"),
            os.path.join(APPDIR, "obs-scripts", "auto-audio-setup.lua")]
 QUIET = "--quiet" in sys.argv
 

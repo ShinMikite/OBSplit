@@ -142,7 +142,7 @@ $('#addGame').onclick = async function openGame() {
     for (const g of games) replaceSel.appendChild(Object.assign(el('option', null, 'switch "' + g.name + '" (' + (g.exe || 'none') + ')'), { value: g.name }));
     r1.append(replaceSel);
   }
-  const refresh = el('button', null, '⟳'); refresh.title = 'Refresh the list'; refresh.onclick = () => { close(); openGame(); };
+  const refresh = icoBtn('refresh', 'Refresh the list'); refresh.onclick = () => { close(); openGame(); };
   r1.append(refresh); m.appendChild(r1);
   const list = el('div', 'pick');
   const add = w => {
@@ -157,7 +157,7 @@ $('#addGame').onclick = async function openGame() {
     list.appendChild(b);
   };
   const g = d.windows.filter(w => w.game), other = d.windows.filter(w => !w.game);
-  list.appendChild(el('div', 'sec', g.length ? 'Games' : 'No games detected. Start your game, then click ⟳'));
+  list.appendChild(el('div', 'sec', g.length ? 'Games' : 'No games detected. Start your game, then click the refresh button'));
   g.forEach(add);
   if (other.length) {
     const t = el('div', 'sec', 'Other windows (' + other.length + '): show'); t.style.cursor = 'pointer';

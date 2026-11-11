@@ -9,6 +9,9 @@ local ffi = require("ffi")
 ffi.cdef[[
 void* ShellExecuteA(void* hwnd, const char* op, const char* file, const char* params, const char* dir, int show);
 void Sleep(uint32_t ms);
+void* OpenProcess(uint32_t access, int inherit, uint32_t pid);
+int GetExitCodeProcess(void* process, uint32_t* code);
+int CloseHandle(void* handle);
 ]]
 local shell32 = ffi.load("shell32")
 
@@ -22,6 +25,22 @@ local function exists(path)
     local f = io.open(path, "r")
     if f then f:close() return true end
     return false
+end
+
+-- Is the helper process (pid in data\server.pid) actually running right now?
+local function helper_running()
+    if not datadir then return false end
+    local f = io.open(datadir .. "server.pid", "r")
+    if not f then return false end
+    local pid = tonumber(f:read("*l") or "")
+    f:close()
+    if not pid then return false end
+    local h = ffi.C.OpenProcess(0x1000, 0, pid)   -- PROCESS_QUERY_LIMITED_INFORMATION
+    if h == nil then return false end
+    local code = ffi.new("uint32_t[1]")
+    local ok = ffi.C.GetExitCodeProcess(h, code)
+    ffi.C.CloseHandle(h)
+    return ok ~= 0 and code[0] == 259              -- STILL_ACTIVE
 end
 
 local function find_files(settings_python)

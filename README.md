@@ -2,9 +2,9 @@
 
 **Make OBS Studio feel like XSplit.**
 
-OBSplit adds a set of panels to OBS Studio for people coming from XSplit: one-click game, Discord and screen-region sources, scene thumbnails, a simpler audio mixer, and a full YouTube toolkit (chat, moderation, title and thumbnail editing while live, and stream stats).
+OBSplit adds a set of panels to OBS Studio for people coming from XSplit: one-click game, Discord and screen-region sources, scene thumbnails, a simpler audio mixer that keeps your voice on top, and a full YouTube toolkit (set up streams, chat, moderation, title and thumbnail editing while live, and stream stats), all without opening a browser.
 
-It isn't an OBS plugin. Everything uses features OBS already has: custom browser docks, the built-in Lua scripting and the built-in WebSocket server. A small local helper program runs while OBS is open and closes itself after OBS closes.
+It isn't an OBS plugin. Everything uses features OBS already has: custom browser docks, the built-in Lua scripting and the built-in WebSocket server. A small local helper program runs while OBS is open and closes itself after OBS closes. If it ever stops, OBS restarts it within a few seconds, and the panels keep their content while it reconnects.
 
 ---
 
@@ -19,10 +19,10 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 ### Sources+
 - The current scene's sources, top layer first, laid out like OBS's own list: show/hide, lock, move up/down (on hover), double-click for Properties, and a menu (Filters, bring to front, send to back, remove).
 - **Pinned layers:** mark a source **Always on top** or **Always at bottom**. It stays there in **every scene**, whatever you add or move later. Useful for alerts on top and backgrounds at the bottom.
-- **＋ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
-- **＋ Discord:** adds Discord voice audio in one click, to one scene or **all scenes**, even before Discord is open. It reuses your existing Discord source instead of creating duplicates, and fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
-- **＋ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
-- **＋ More:** image, media file, browser, text, color, slideshow, camera / capture card, window, display, audio input or app audio, opened straight into OBS's setup window. You can also add a source you already have (like OBS's "Paste (Reference)"), to one scene or all scenes.
+- **+ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
+- **+ Discord:** adds Discord voice audio in one click, to one scene or **all scenes**, even before Discord is open. It reuses your existing Discord source instead of creating duplicates, and fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
+- **+ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
+- **+ More:** image, media file, browser, text, color, slideshow, camera / capture card, window, display, audio input or app audio, opened straight into OBS's setup window. You can also add a source you already have (like OBS's "Paste (Reference)"), to one scene or all scenes.
 
 ### Audio+
 - A simpler mixer: mute, volume with a live meter, and a headphones button (play it in your headphones).
@@ -49,6 +49,10 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 - **YT Stream Info:** picks your live or next scheduled stream automatically. Edit the **title, description, category, visibility, tags and thumbnail at any time, including while live.** Drag and drop a thumbnail to upload it.
 - **YT Stats:** viewers (and peak), uptime, likes, chat per minute, chatters, first-timers, Super Chat totals, new members, **stream health** with YouTube's warnings, and API usage.
 
+### OBSplit Setup
+- The one-time YouTube connection, step by step (see below), and your channel for reading chat before you connect.
+- **Lock my panel layout:** arrange your panels, click Lock, and close OBS once. From then on OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a crash, a reset or a connected account's separate layout. **Update my saved layout** after rearranging on purpose.
+
 ### Auto Audio Setup (OBS script)
 New media, browser and capture-card sources automatically get **Monitor and Output**. New browser sources (alerts) get **Control audio via OBS**, so alert sounds actually reach your stream. Mic, desktop, game and app audio are left alone to avoid echo.
 
@@ -65,8 +69,8 @@ New media, browser and capture-card sources automatically get **Monitor and Outp
 1. Download **`OBSplit-Setup-x.y.z.exe`** from [Releases](https://github.com/ShinMikite/OBSplit/releases).
 2. **Close OBS**, then run the installer. No admin rights are needed; it installs to `%LOCALAPPDATA%\OBSplit`.
    Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Click **More info → Run anyway**.
-3. Start OBS. The new panels are in the **Docks** menu: **YT Chat, YT Stream Info, YT Stats, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like, then use **Docks → Lock Docks**.
-4. Open **OBSplit Setup** for the optional YouTube connection.
+3. Start OBS. The new panels are in the **Docks** menu: **YT Chat, YT Stream Info, YT Stats, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like.
+4. In **OBSplit Setup**, click **Lock my panel layout** once you're happy with the arrangement, and connect YouTube if you want the YouTube features.
 
 ### What the installer changes in OBS
 
@@ -74,9 +78,9 @@ To be transparent, here is everything it does:
 
 | Change | Why |
 |---|---|
-| Turns on OBS's built-in **WebSocket server** (password-protected; a random password is created if you don't have one) | Scenes+ and Audio+ talk to OBS through it |
+| Turns on OBS's built-in **WebSocket server** (password-protected; a random password is created if you don't have one) | Scenes+, Sources+ and Audio+ talk to OBS through it |
 | Adds 7 **custom browser docks** (all pointing to `http://127.0.0.1:47821`) | The panels |
-| Adds 2 scripts to each **scene collection** (`obsplit-launcher.lua`, `auto-audio-setup.lua`) | Starts the helper with OBS; auto audio setup |
+| Adds 3 scripts to each **scene collection** (`obsplit-launcher.lua`, `obsplit-backup-launcher.lua`, `auto-audio-setup.lua`) | Starts the helper with OBS (the backup starts it if the main one ever can't load); auto audio setup |
 
 A backup of every OBS file it touches is saved to `%APPDATA%\obs-studio\obsplit-backups\` first. **Uninstalling reverses all of it**, including switching the WebSocket server back off if it was off before. To reconnect later, for example after creating a new scene collection, use **Start menu → OBSplit → OBSplit - Connect to OBS**.
 
@@ -88,13 +92,15 @@ Open the **OBSplit Setup** panel. It links straight to each page:
 2. Set up the sign-in screen (External) and **Publish** it. Otherwise Google signs you out every 7 days.
 3. Create an OAuth client of type **Desktop app**, download the JSON and drop it on the setup panel.
 4. Click **Connect YouTube account**. Google will say the app isn't verified; that's expected for your own app (**Advanced → Go to OBSplit**).
+5. In **YT Stream Info**, click **+ New** and use **Use in OBS** in the stream key box. From then on, set up each stream there and press **Start Streaming** in OBS.
 
-Each user brings their own key, so everyone gets their own free daily allowance (10,000 units). Reading chat uses none. Typical costs: send a message 20, delete 25, time-out or ban 200, save stream info 51, thumbnail 50, stats about 240 an hour while live.
+Each user brings their own key, so everyone gets their own free daily allowance (10,000 units). Reading chat uses none. Typical costs: create a stream about 150, send a message 20, delete 25, time-out or ban 200, save stream info 51, thumbnail 50, stats about 240 an hour while live. A normal stream uses roughly 1,000–2,500.
 
 ## Privacy
 
 - Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google.
 - Chat is read from YouTube's public live-chat page, the same way the pop-out chat works.
+- Your YouTube stream key goes from YouTube straight into OBS's own stream settings. OBSplit never shows it or saves it anywhere else.
 - Your sign-in, settings and chat history are stored in `%LOCALAPPDATA%\OBSplit\app\data`. The uninstaller asks whether to delete them.
 
 ## Coming from XSplit?
@@ -105,10 +111,11 @@ See **[docs/xsplit-to-obs.md](docs/xsplit-to-obs.md)**: where XSplit's features 
 
 | Problem | Fix |
 |---|---|
-| Panels show **"Reconnecting…"** | Nothing to do: the helper is restarting and the launcher brings it back within about 10 seconds. If it never clears, check **Tools → Scripts** lists `obsplit-launcher.lua`; if not, run **OBSplit - Connect to OBS** with OBS closed. |
-| Scenes+ / Audio+ say **"OBS offline"** | **Tools → WebSocket Server Settings**: make sure the server is enabled. |
+| Panels show **"Reconnecting…"** | Nothing to do: the helper is restarting and the launcher brings it back within about 10 seconds. If it never clears, check **Tools → Scripts** lists `obsplit-launcher.lua` and `obsplit-backup-launcher.lua`; if not, run **OBSplit - Connect to OBS** with OBS closed. |
+| Scenes+ / Sources+ / Audio+ say **"OBS offline"** | **Tools → WebSocket Server Settings**: make sure the server is enabled. |
 | Panels are missing after creating a new scene collection | Close OBS and run **OBSplit - Connect to OBS**. |
-| Game not in the ＋ Game list | Start the game first, then click ⟳. Games under a Steam/Epic/GOG/Xbox library or running fullscreen are listed first; everything else is under "Other windows". |
+| My panel layout keeps changing | Use **Lock my panel layout** in OBSplit Setup. |
+| Game not in the + Game list | Start the game first, then click the refresh button. Games under a Steam/Epic/GOG/Xbox library or running fullscreen are listed first; everything else is under "Other windows". |
 
 ## Building from source
 
