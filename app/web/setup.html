@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBSplit Setup</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { overflow: auto; }
+  #main { padding: 12px; max-width: 640px; }
+  h2 { font-size: 1.05em; margin: 18px 0 6px; display: flex; gap: 8px; align-items: center; }
+  .chk { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: .75em; background: var(--panel2); border: 1px solid var(--border); flex: none; }
+  .chk.done { background: var(--ok); border-color: var(--ok); color: #08130b; }
+  ol { padding-left: 20px; margin: 6px 0; } li { margin: 5px 0; }
+  .link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #drop { border: 2px dashed var(--border); border-radius: 8px; padding: 16px; text-align: center; cursor: pointer; margin-top: 8px; }
+  #drop.drag { border-color: var(--accent); }
+  .box { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; user-select: all; word-break: break-all; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td:first-child { width: 34%; }
+  #main, .box, li { overflow-wrap: anywhere; }
+  .bar b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+</style>
+</head>
+<body>
+<div class="bar"><b>OBSplit setup</b><span class="grow"></span><span id="pill" class="pill"><span class="dot"></span>…</span></div>
+<div id="main">
+  <h2><span id="c1" class="chk">1</span> Google API access (one time, about 5 minutes)</h2>
+  <div id="s1"></div>
+
+  <h2><span id="c2" class="chk">2</span> Connect your YouTube channel</h2>
+  <div id="s2"></div>
+
+  <h2><span class="chk">3</span> Chat source</h2>
+  <div class="box">
+    <div id="srcNow" class="small" style="margin-bottom:6px"></div>
+    <div class="row-flex" style="margin-bottom:6px"><input id="chan" class="grow" placeholder="Your channel: @handle or channel link (only needed before step 2)"><button id="chanGo">Save</button></div>
+    <div class="row-flex"><input id="watch" class="grow" placeholder="Paste a YouTube video/stream link to read another chat"><button id="watchGo">Watch</button><button id="watchMine">Back to my channel</button></div>
+  </div>
+
+  <h2><span class="chk">4</span> Your panels</h2>
+  <div class="box small">
+    In OBS: <b>Docks → Custom Browser Docks…</b> (the installer adds these for you). Show or hide them from the <b>Docks</b> menu like any panel.
+    <table style="margin-top:6px">
+      <tr><td>YT Chat</td><td><code>http://127.0.0.1:47821/chat</code></td></tr>
+      <tr><td>YT Stream Info</td><td><code>http://127.0.0.1:47821/info</code></td></tr>
+      <tr><td>YT Stats</td><td><code>http://127.0.0.1:47821/stats</code></td></tr>
+      <tr><td>Scenes+</td><td><code>http://127.0.0.1:47821/scenes</code></td></tr>
+      <tr><td>Audio+</td><td><code>http://127.0.0.1:47821/audio</code></td></tr>
+      <tr><td>OBSplit Setup</td><td><code>http://127.0.0.1:47821/</code></td></tr>
+    </table>
+  </div>
+  <p class="muted small" id="quota"></p>
+</div>
+<script src="/static/common.js"></script>
+<script>
+let st = {};
+const open = url => api('/api/open', { url }).catch(e => toast(e.message, true));
+const L = (text, url) => `<span class="link" data-url="${url}">${text}</span>`;
+document.addEventListener('click', e => { const u = e.target.dataset && e.target.dataset.url; if (u) open(u); });
+
+function draw() {
+  const has = st.has_client, con = st.connected, c = st.config || {};
+  $('#c1').className = 'chk' + (has ? ' done' : ''); $('#c1').textContent = has ? '✓' : '1';
+  $('#c2').className = 'chk' + (con ? ' done' : ''); $('#c2').textContent = con ? '✓' : '2';
+  if (has) {
+    $('#s1').innerHTML = '<div class="box small">Google API access is set up. <span class="link" id="redo">Replace client file</span></div>';
+    $('#redo').onclick = () => { st.has_client = false; draw(); };
+  } else {
+    $('#s1').innerHTML = `<div class="box small">
+      This gives the panels their own permission to talk to YouTube for sending, moderating and editing your stream.
+      It's free and only you use it. Links open in your web browser.
+      <ol>
+        <li>${L('Create a Google Cloud project', 'https://console.cloud.google.com/projectcreate')}. Name it <b>OBSplit</b> → <b>Create</b>. Make sure it's the selected project at the top of the page.</li>
+        <li>${L('Enable the YouTube Data API v3', 'https://console.cloud.google.com/apis/library/youtube.googleapis.com')} → <b>Enable</b>.</li>
+        <li>${L('Set up the sign-in screen', 'https://console.cloud.google.com/auth/overview')} → <b>Get started</b>. App name <b>OBSplit</b>, your email → <b>Next</b> → Audience <b>External</b> → <b>Next</b> → your email → <b>Next</b> → tick agree → <b>Create</b>.</li>
+        <li>${L('Open Audience', 'https://console.cloud.google.com/auth/audience')} → <b>Publish app</b> → <b>Confirm</b>. (Otherwise Google signs you out every 7 days.)</li>
+        <li>${L('Open Clients', 'https://console.cloud.google.com/auth/clients')} → <b>Create client</b> → Application type <b>Desktop app</b> → <b>Create</b> → <b>Download JSON</b>.</li>
+        <li>Drop that downloaded file below.</li>
+      </ol>
+      <div id="drop">Drop the downloaded <b>client_secret_….json</b> here, or click to choose it</div>
+      <input id="cf" type="file" accept=".json,application/json" hidden></div>`;
+    const d = $('#drop');
+    d.onclick = () => $('#cf').click();
+    d.ondragover = e => { e.preventDefault(); d.classList.add('drag'); };
+    d.ondragleave = () => d.classList.remove('drag');
+    d.ondrop = e => { e.preventDefault(); d.classList.remove('drag'); if (e.dataTransfer.files[0]) sendClient(e.dataTransfer.files[0]); };
+    $('#cf').onchange = () => $('#cf').files[0] && sendClient($('#cf').files[0]);
+  }
+  if (con) {
+    $('#s2').innerHTML = `<div class="box small">Connected as <b></b>. <span class="link" id="disc">Disconnect</span></div>`;
+    $('#s2 b').textContent = c.channel_title || c.channel_id;
+    $('#disc').onclick = async () => { if (confirm('Disconnect your YouTube account from the panels?')) { await api('/api/disconnect', {}); } };
+  } else {
+    $('#s2').innerHTML = `<div class="box small">
+      <button id="conn" class="primary" ${has ? '' : 'disabled'}>Connect YouTube account</button>
+      <ol style="margin-top:8px"><li>Your web browser opens. Pick the account, then your channel.</li>
+      <li>Google says <i>“Google hasn't verified this app”</i>. That's expected because it's your own app: click <b>Advanced</b> → <b>Go to OBSplit</b> → <b>Continue</b>.</li>
+      <li>Close the browser tab when it says <b>Connected</b>.</li></ol></div>`;
+    $('#conn').onclick = () => api('/api/connect', {}).then(() => toast('Finish signing in in your web browser')).catch(e => toast(e.message, true));
+  }
+  const s = st.status || {};
+  const src = c.watch_override ? 'Reading chat from another stream: ' + c.watch_override
+    : c.channel_id ? 'Reading chat from your channel (' + (c.channel_title || c.channel_id) + '). It switches automatically when you go live.'
+    : 'Connect your channel above so chat knows where to look.';
+  $('#srcNow').textContent = src;
+  $('#watch').value = '';
+  $('#quota').textContent = 'YouTube API units used today: ' + fmtNum(st.quota) + ' of 10,000 (resets midnight Pacific). Reading chat uses none.';
+  statusPill($('#pill'), s);
+}
+async function sendClient(f) {
+  try { await api('/api/client', await f.text(), { raw: true, type: 'application/json' }); toast('Google API access saved'); }
+  catch (e) { toast(e.message, true); }
+}
+$('#chanGo').onclick = () => api('/api/settings', { channel: $('#chan').value }).then(() => { toast('Channel saved'); $('#chan').value = ''; }).catch(e => toast(e.message, true));
+$('#watchGo').onclick = () => api('/api/settings', { watch_override: $('#watch').value }).then(() => toast('Switched chat')).catch(e => toast(e.message, true));
+$('#watchMine').onclick = () => api('/api/settings', { watch_override: '' }).then(() => toast('Back to your channel')).catch(e => toast(e.message, true));
+
+connect(ev => {
+  if (ev.type === 'hello' || ev.type === 'settings') { st = { ...st, ...ev }; draw(); }
+  else if (ev.type === 'status') { st.status = ev; st.connected = ev.connected; statusPill($('#pill'), ev); }
+  else if (ev.type === 'disconnected') statusPill($('#pill'), { state: 'disconnected' });
+});
+setInterval(() => api('/api/state').then(d => { st = { ...st, ...d }; $('#quota').textContent = 'YouTube API units used today: ' + fmtNum(d.quota) + ' of 10,000 (resets midnight Pacific). Reading chat uses none.'; }).catch(() => {}), 30000);
+</script>
+</body>
+</html>

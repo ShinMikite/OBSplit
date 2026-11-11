@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio+</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  #list { flex: 1; overflow-y: auto; padding: 6px 8px; display: grid; gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-content: start; }
+  .src { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+  .src.muted { opacity: .62; }
+  .l1 { display: flex; align-items: center; gap: 6px; }
+  .nm { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .db { font-size: .78em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+  .ib { padding: 1px 6px; font-size: .95em; line-height: 1.3; }
+  .ib.on { background: var(--accent); border-color: var(--accent); }
+  .mute.on { background: #7d2226; border-color: #a02e33; }
+  .fader { position: relative; height: 22px; margin: 5px 0 4px; }
+  .meter { position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: 3px; overflow: hidden;
+    background: linear-gradient(90deg, #1f9d55 0%, #1f9d55 66%, #d9a400 66%, #d9a400 87%, #e5484d 87%); }
+  .meter .cover { position: absolute; top: 0; right: 0; bottom: 0; background: #2a2c36; width: 100%; transition: width .08s linear; }
+  .fader input { position: absolute; inset: 0; width: 100%; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+  .fader input::-webkit-slider-runnable-track { height: 22px; background: transparent; }
+  .fader input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 20px; margin-top: 1px; border-radius: 3px;
+    background: #e6e6ea; border: 1px solid #555; cursor: pointer; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-size: .74em; padding: 1px 7px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--border);
+    cursor: pointer; user-select: none; white-space: nowrap; }
+  .chip.on { background: #1d3f8a; border-color: var(--accent); color: #fff; }
+  .chip.stream.on { background: #7a1f24; border-color: #ff4d55; }
+  .silentbar { grid-column: 1 / -1; font-size: .78em; color: var(--muted); cursor: pointer; padding: 4px 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .silentbar:hover { color: var(--text); }
+  .src.silent { opacity: .55; }
+  #legend { padding: 4px 10px 6px; font-size: .74em; color: var(--muted); flex: none; border-bottom: 1px solid var(--border); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 2px 8px; font-size: .8em; }
+  .seg button.on { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span id="pill" class="pill"><span class="dot"></span>…</span>
+  <span class="grow"></span>
+  <span class="seg"><button id="vScene" class="on" title="Only sources in the live scene, plus Mic and Desktop Audio">This scene</button><button id="vAll" title="Every source with audio">All</button></span>
+</div>
+<div id="legend"></div>
+<div id="list"></div>
+<script src="/static/common.js"></script>
+<script>
+let st = { inputs: {}, specials: [], members: [], rec_tracks: [], track_names: {} }, view = 'scene';
+const dragging = new Set();
+const posToDb = p => p <= 0 ? -100 : Math.max(-100, 60 * Math.log10(p));
+const dbToPos = db => db <= -100 ? 0 : Math.min(1, Math.pow(10, db / 60));
+const KIND = { wasapi_input_capture: 'mic', wasapi_output_capture: 'desktop', wasapi_process_output_capture: 'app',
+  ffmpeg_source: 'media', vlc_source: 'playlist', browser_source: 'browser', dshow_input: 'capture card',
+  game_capture: 'game', window_capture: 'window' };
+const MON = { none: 'OBS_MONITORING_TYPE_NONE', both: 'OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT', only: 'OBS_MONITORING_TYPE_MONITOR_ONLY' };
+
+const send = (body) => api('/api/obs/input', body).catch(e => toast(e.message, true));
+let volTimer = {};
+function sendVol(name, db) { clearTimeout(volTimer[name]); volTimer[name] = setTimeout(() => send({ name, db }), 60); }
+
+let showSilent = false;
+function names() {
+  const all = Object.keys(st.inputs);
+  const inView = view === 'all' ? all : all.filter(n => st.specials.includes(n) || st.members.includes(n));
+  const sort = arr => arr.sort((a, b) => (st.specials.includes(b) - st.specials.includes(a)) || a.localeCompare(b));
+  const loud = sort(inView.filter(n => st.inputs[n].audible !== false));
+  const silent = sort(inView.filter(n => st.inputs[n].audible === false));
+  return { loud, silent };
+}
+
+function row(name) {
+  const i = st.inputs[name];
+  const r = el('div', 'src' + (i.muted ? ' muted' : '')); r.dataset.name = name;
+  const l1 = el('div', 'l1');
+  const mute = el('button', 'ib mute' + (i.muted ? ' on' : ''), i.muted ? '🔇' : '🔊');
+  mute.title = i.muted ? 'Unmute' : 'Mute'; mute.onclick = () => send({ name, muted: !i.muted });
+  const nm = el('span', 'nm', name); nm.appendChild(el('small', null, KIND[i.kind] || ''));
+  nm.title = name;
+  const db = el('span', 'db', i.db <= -100 ? '-inf dB' : i.db.toFixed(1) + ' dB');
+  const monOn = i.monitor !== MON.none;
+  const mon = el('button', 'ib' + (monOn ? ' on' : ''), i.monitor === MON.only ? '🎧 only' : '🎧');
+  mon.title = monOn ? 'You hear this in your headphones (click to stop)' : "You don't hear this (click to hear it in your headphones)";
+  mon.onclick = () => send({ name, monitor: monOn ? MON.none : MON.both });
+  l1.append(mute, nm, db, mon);
+
+  const f = el('div', 'fader');
+  const meter = el('div', 'meter'); meter.appendChild(el('div', 'cover'));
+  const sl = el('input'); sl.type = 'range'; sl.min = 0; sl.max = 1000; sl.value = Math.round(dbToPos(i.db) * 1000);
+  sl.title = 'Volume (double-click = 0 dB)';
+  sl.oninput = () => { dragging.add(name); const d = posToDb(sl.value / 1000); db.textContent = d <= -100 ? '-inf dB' : d.toFixed(1) + ' dB'; sendVol(name, d); };
+  sl.onchange = () => { setTimeout(() => dragging.delete(name), 400); };
+  sl.ondblclick = () => { sl.value = 1000; send({ name, db: 0 }); };
+  f.append(meter, sl);
+
+  const chips = el('div', 'chips');
+  const chip = (label, track, cls, tip) => {
+    const on = !!(i.tracks || {})[String(track)];
+    const c = el('span', 'chip ' + (cls || '') + (on ? ' on' : ''), label); c.title = tip + (on ? ' (on)' : ' (off)');
+    c.onclick = () => send({ name, track, on: !on }); chips.appendChild(c);
+  };
+  chip('Stream', 1, 'stream', 'Viewers hear this on the stream');
+  for (const t of st.rec_tracks) if (t !== 1) chip('Rec ' + t, t, '', 'In recording track ' + t + ' (' + (st.track_names[t] || '') + ')');
+  r.append(l1, f, chips);
+  return r;
+}
+
+function draw() {
+  const p = $('#pill');
+  p.className = 'pill' + (st.connected ? ' watching' : ''); p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : 'OBS offline');
+  const list = $('#list'); list.innerHTML = '';
+  if (!st.connected) { list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; $('#legend').textContent = ''; return; }
+  $('#legend').textContent = 'Stream = viewers hear it · ' + st.rec_tracks.filter(t => t !== 1).map(t => 'Rec ' + t + ' = ' + (st.track_names[t] || 'track ' + t)).join(' · ') + ' · 🎧 = you hear it';
+  const { loud, silent } = names();
+  const keepOrMake = n => {
+    const keep = dragging.has(n) && document.querySelector('.src[data-name="' + CSS.escape(n) + '"]');
+    const r = keep || row(n); if (silent.includes(n)) r.classList.add('silent'); return r;
+  };
+  for (const n of loud) list.appendChild(keepOrMake(n));
+  if (!loud.length) list.appendChild(Object.assign(el('div', 'notice', 'No sound sources in this scene.'), {}));
+  if (silent.length) {
+    const t = el('div', 'silentbar');
+    t.textContent = (showSilent ? '▾ ' : '▸ ') + silent.length + ' without sound: ' + silent.join(', ');
+    t.title = 'Videos with no soundtrack, browser sources not set to "Control audio via OBS", and captures with "Capture audio" off. Click to ' + (showSilent ? 'hide' : 'show') + ' them.';
+    t.onclick = () => { showSilent = !showSilent; draw(); };
+    list.appendChild(t);
+    if (showSilent) for (const n of silent) list.appendChild(keepOrMake(n));
+  }
+}
+
+$('#vScene').onclick = () => { view = 'scene'; $('#vScene').classList.add('on'); $('#vAll').classList.remove('on'); draw(); };
+$('#vAll').onclick = () => { view = 'all'; $('#vAll').classList.add('on'); $('#vScene').classList.remove('on'); draw(); };
+
+function meters(m) {
+  for (const r of document.querySelectorAll('.src')) {
+    const d = m[r.dataset.name]; const cov = r.querySelector('.cover'); if (!cov) continue;
+    const lvl = d == null ? 0 : Math.max(0, Math.min(1, (d + 60) / 60));
+    cov.style.width = (100 - lvl * 100) + '%';
+  }
+}
+
+(function open() {
+  const es = new EventSource('/obs-events?view=audio');
+  es.onmessage = m => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'state') { st = ev; draw(); }
+    else if (ev.type === 'meters') meters(ev.m);
+  };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; draw(); setTimeout(open, 2000); };
+})();
+</script>
+</body>
+</html>

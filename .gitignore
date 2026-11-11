@@ -1,0 +1,17 @@
+# personal data created at runtime (sign-ins, settings, chat history)
+app/data/
+
+# build output
+build/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.log

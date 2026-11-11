@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT Stats</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { overflow: auto; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 8px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; min-width: 0; }
+  .tile .k { font-size: .7em; color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .v { font-size: 1.35em; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .s { font-size: .72em; color: var(--muted); min-height: 1.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .good { color: var(--ok); } .ok { color: var(--warn); } .bad, .noData { color: var(--danger); }
+  #issues { padding: 0 10px 10px; font-size: .85em; }
+  #issues div { padding: 4px 8px; border-left: 3px solid var(--warn); background: var(--panel); margin-top: 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="bar"><span id="pill" class="pill"><span class="dot"></span>…</span><span id="title" class="grow muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span></div>
+<div id="grid"></div>
+<div id="issues"></div>
+<script src="/static/common.js"></script>
+<script>
+let s = {}, started = null;
+const tiles = [
+  ['viewers', 'Watching', () => fmtNum(s.viewers), () => s.peak ? 'peak ' + fmtNum(s.peak) : ''],
+  ['uptime', 'Uptime', () => started ? fmtDur(Date.now() - started) : '—', () => started ? 'since ' + fmtTime(started) : ''],
+  ['likes', 'Likes', () => fmtNum(s.likes), () => s.views != null ? fmtNum(s.views) + ' views' : ''],
+  ['rate', 'Chat / min', () => fmtNum(s.rate), () => fmtNum(s.messages) + ' messages'],
+  ['chatters', 'Chatters', () => fmtNum(s.chatters), () => s.first_timers ? s.first_timers + ' first-time' : ''],
+  ['money', 'Super Chats', () => { const e = Object.entries(s.superchats || {}); return e.length ? e.map(([c, v]) => c + v.toLocaleString(undefined, { maximumFractionDigits: 2 })).join(' + ') : '—'; }, () => ''],
+  ['members', 'New members', () => fmtNum((s.members || 0)), () => s.gifts ? s.gifts + ' gift purchase' + (s.gifts > 1 ? 's' : '') : ''],
+  ['health', 'Stream health', () => s.health ? s.health.replace('noData', 'no data').replace(/^./, c => c.toUpperCase()) : '—', () => ''],
+  ['quota', 'API used today', () => fmtNum(s.quota), () => 'of 10,000'],
+];
+function draw() {
+  const g = $('#grid');
+  if (!g.children.length) for (const [id, k] of tiles) { const t = el('div', 'tile'); t.id = 't-' + id; t.append(el('div', 'k', k), el('div', 'v'), el('div', 's')); g.appendChild(t); }
+  for (const [id, , v, sub] of tiles) { const t = $('#t-' + id); t.children[1].textContent = v(); t.children[2].textContent = sub(); }
+  $('#t-health').children[1].className = 'v ' + (s.health || '');
+  const iss = $('#issues'); iss.innerHTML = '';
+  for (const i of s.issues || []) { const d = el('div', null, i.text); if (i.sev === 'error') d.style.borderLeftColor = 'var(--danger)'; iss.appendChild(d); }
+  if (s.error) iss.appendChild(el('div', null, s.error));
+}
+async function poll() {
+  try { s = await api('/api/stats'); started = s.started || null; $('#title').textContent = (s.status && s.status.title) || ''; statusPill($('#pill'), s.status || {}); } catch (e) { statusPill($('#pill'), { state: 'disconnected' }); }
+  draw();
+}
+poll(); setInterval(poll, 10000); setInterval(draw, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scenes+</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { overflow: hidden; }
+  #grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px; padding: 8px; align-content: start; grid-auto-rows: max-content; }
+  .card { display: flex; flex-direction: column; min-height: max-content; position: relative; background: var(--panel); border: 2px solid var(--border); border-radius: 8px;
+    overflow: hidden; cursor: pointer; user-select: none; transition: border-color .1s; }
+  .card:hover { border-color: #4a4d5c; }
+  .card.program { border-color: #ff4d55; box-shadow: 0 0 0 1px #ff4d55; }
+  .card.preview { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+  .thumb { flex: none; aspect-ratio: 16/9; background: #0d0e12; display: flex; align-items: center; justify-content: center; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb .ph { color: var(--muted); font-size: .8em; }
+  .foot { display: flex; align-items: center; gap: 4px; padding: 4px 6px; }
+  .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: .9em; }
+  .tag { position: absolute; top: 5px; left: 5px; font-size: .68em; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+  .tag.live { background: #ff4d55; color: #fff; } .tag.pv { background: var(--ok); color: #08130b; }
+  .rule { border: 1px solid var(--border); background: var(--panel2); border-radius: 5px; padding: 0 4px;
+    font-size: .8em; line-height: 1.5; cursor: pointer; min-width: 26px; text-align: center; }
+  .rule.on { background: #14532d; border-color: #22c55e; }
+  .rule.off { background: #5f1d21; border-color: #ef4444; }
+  .rule.none { opacity: .45; }
+  .thumb { position: relative; }
+  .note { position: absolute; left: 4px; bottom: 4px; font-size: .64em; padding: 1px 5px; border-radius: 4px;
+    background: rgba(0,0,0,.7); color: #c9cbd3; pointer-events: none; }
+  .hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 6px; font-size: .7em; color: var(--muted); pointer-events: none; }
+  .pick { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; margin: 6px 0; }
+  .pick button { text-align: left; display: flex; gap: 8px; align-items: center; padding: 6px 8px; }
+  .pick button b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .pick button small { color: var(--muted); white-space: nowrap; }
+  .sec { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 8px; }
+  .row2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9em; margin: 4px 0; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); }
+  #legend { padding: 0 8px 6px; font-size: .75em; color: var(--muted); flex: none; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span id="pill" class="pill"><span class="dot"></span>…</span>
+  <span id="mode" class="muted small grow" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+  <button id="addGame" title="Add a running game (picture + sound) to the live scene">＋ Game</button>
+  <button id="addDiscord" title="Add Discord voice audio to the live scene">＋ Discord</button>
+  <button id="addRegion" title="Drag a box on your screen to capture that area">＋ Screen region</button>
+  <button id="go" class="primary" hidden title="Send the green preview scene live">Transition ▶</button>
+</div>
+<div id="grid"></div>
+<div id="legend"></div>
+<script src="/static/common.js"></script>
+<script>
+let st = { scenes: [], inputs: {}, specials: [], rules: {} }; const thumbs = {};
+const ICON = k => /input_capture/.test(k) ? '🎙' : '🔈';
+
+function ruleBtn(scene, name) {
+  const v = ((st.rules || {})[scene] || {})[name] || '';
+  const b = el('span', 'rule ' + (v || 'none'), ICON((st.inputs[name] || {}).kind) + (v === 'off' ? '✕' : v === 'on' ? '✓' : ''));
+  b.title = name + ' in "' + scene + '": ' + (v === 'on' ? 'always ON when this scene goes live'
+    : v === 'off' ? 'always MUTED when this scene goes live' : 'left as it is') + '\n(click to change)';
+  b.onclick = e => {
+    e.stopPropagation();
+    const next = v === '' ? 'on' : v === 'on' ? 'off' : '';
+    api('/api/obs/rule', { scene, name, value: next }).catch(err => toast(err.message, true));
+  };
+  return b;
+}
+
+function draw() {
+  const g = $('#grid'); g.innerHTML = '';
+  if (!st.connected) {
+    g.innerHTML = '<div class="notice" style="grid-column:1/-1"></div>';
+    $('.notice').textContent = st.error || 'Connecting to OBS…'; $('#legend').textContent = ''; return;
+  }
+  for (const s of st.scenes) {
+    const c = el('div', 'card'); c.dataset.scene = s;
+    if (s === st.program) c.classList.add('program');
+    else if (st.studio && s === st.preview) c.classList.add('preview');
+    const t = el('div', 'thumb');
+    fillThumb(t, s);
+    c.appendChild(t);
+    if (s === st.program) c.appendChild(el('span', 'tag live', 'LIVE'));
+    else if (st.studio && s === st.preview) c.appendChild(el('span', 'tag pv', 'PREVIEW'));
+    const f = el('div', 'foot'); f.appendChild(el('span', 'nm', s));
+    for (const n of st.specials) f.appendChild(ruleBtn(s, n));
+    c.appendChild(f);
+    c.onclick = () => api('/api/obs/scene', { scene: s }).catch(e => toast(e.message, true));
+    if (st.studio) c.ondblclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
+    g.appendChild(c);
+  }
+  $('#legend').textContent = st.specials.length
+    ? 'Small buttons = what ' + st.specials.join(' / ') + ' do when a scene goes live: dim = leave as is, ✓ = turn on, ✕ = mute.' : '';
+}
+
+function header() {
+  const p = $('#pill');
+  if (st.connected) { p.className = 'pill watching'; p.innerHTML = '<span class="dot"></span>OBS'; p.title = 'Connected to OBS'; }
+  else { p.className = 'pill'; p.innerHTML = '<span class="dot"></span>OBS offline'; }
+  $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click or ▶ = go live' : 'Click a scene to go live') : '';
+  $('#go').hidden = !(st.connected && st.studio);
+}
+$('#go').onclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
+
+function fillThumb(t, s) {
+  const th = thumbs[s];
+  t.innerHTML = '';
+  if (!th) { t.appendChild(el('span', 'ph', 'Loading preview…')); return; }
+  const i = el('img'); i.src = th.img; t.appendChild(i);
+  const live = s === st.program || (st.studio && s === st.preview);
+  if (th.stale && !live) t.appendChild(el('span', 'note', 'last seen live'));
+}
+
+function updateThumb(scene, th) {
+  thumbs[scene] = th;
+  const c = document.querySelector('.card[data-scene="' + CSS.escape(scene) + '"] .thumb');
+  if (!c) return;
+  const img = c.querySelector('img');
+  if (img && !th.stale && !c.querySelector('.note')) { img.src = th.img; return; }
+  fillThumb(c, scene);
+}
+
+// ---------- one-click add: Game / Discord / Screen region
+function modal(title) {
+  const bg = el('div', 'modal-bg'), m = el('div', 'modal');
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  const h = el('h3', null, title); m.appendChild(h);
+  bg.appendChild(m); document.body.appendChild(bg);
+  const close = () => bg.remove();
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+  return { m, close };
+}
+function sceneSelect(scenes, cur) {
+  const s = el('select'); for (const n of scenes) { const o = el('option', null, n); o.value = n; s.appendChild(o); }
+  s.value = cur; return s;
+}
+
+$('#addGame').onclick = async function openGame() {
+  let d; try { d = await api('/api/obs/windows'); } catch (e) { return toast(e.message, true); }
+  const { m, close } = modal('Add a game');
+  const r1 = el('div', 'row2'); r1.append(el('span', null, 'Scene:'));
+  const sc = sceneSelect(d.scenes, d.scene); r1.append(sc);
+  const games = d.games.filter(g => g.mode === 'window');
+  let replaceSel = null;
+  if (games.length) {
+    r1.append(el('span', null, 'Add as:'));
+    replaceSel = el('select');
+    replaceSel.appendChild(Object.assign(el('option', null, 'a new game source'), { value: '' }));
+    for (const g of games) replaceSel.appendChild(Object.assign(el('option', null, 'switch "' + g.name + '" (' + (g.exe || 'none') + ')'), { value: g.name }));
+    r1.append(replaceSel);
+  }
+  const refresh = el('button', null, '⟳'); refresh.title = 'Refresh the list'; refresh.onclick = () => { close(); openGame(); };
+  r1.append(refresh); m.appendChild(r1);
+  const list = el('div', 'pick');
+  const add = (w) => {
+    const b = el('button'); b.append(el('b', null, w.title), el('small', null, w.exe + (w.fullscreen ? ' · fullscreen' : '')));
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const r = await api('/api/obs/add-game', { window: w.window, title: w.title, scene: sc.value, replace: replaceSel ? replaceSel.value : '' });
+        toast(r.replaced ? '"' + r.name + '" now captures ' + w.exe : 'Added "' + r.name + '" (picture + sound) to ' + r.scene); close();
+      } catch (e) { toast(e.message, true); b.disabled = false; }
+    };
+    list.appendChild(b);
+  };
+  const g = d.windows.filter(w => w.game), other = d.windows.filter(w => !w.game);
+  list.appendChild(el('div', 'sec', g.length ? 'Games' : 'No games detected. Start your game, then click ⟳'));
+  g.forEach(add);
+  if (other.length) {
+    const t = el('div', 'sec', '▸ Other windows (' + other.length + ')'); t.style.cursor = 'pointer';
+    t.onclick = () => { t.remove(); list.appendChild(el('div', 'sec', 'Other windows')); other.forEach(add); };
+    list.appendChild(t);
+  }
+  m.appendChild(list);
+  m.appendChild(el('div', 'muted small', 'Adds one Game Capture with sound included, fitted to the screen, on Stream + the Game recording track. It follows the game even if its window title changes.'));
+};
+
+$('#addDiscord').onclick = async () => {
+  let d; try { d = await api('/api/obs/discord'); } catch (e) { return toast(e.message, true); }
+  const { m, close } = modal('Discord audio');
+  const s1 = el('div', 'row2');
+  s1.append(el('span', d.running ? 'ok' : 'warn', d.running ? '● Discord is running' : '● Discord isn\'t running'));
+  m.appendChild(s1);
+  if (d.sources.length) {
+    for (const s of d.sources) {
+      const r = el('div', 'row2');
+      r.append(el('b', null, s.name));
+      r.append(el('span', 'muted', s.scenes.length ? 'in: ' + s.scenes.join(', ') : 'not in any scene'));
+      r.append(el('span', s.priority === 2 ? 'ok' : 'warn', s.priority === 2 ? '✓ matched to Discord' : '⚠ can grab other apps (fixed when you click below)'));
+      m.appendChild(r);
+    }
+  } else m.appendChild(el('div', 'muted', 'No Discord audio source yet.'));
+  const r2 = el('div', 'row2'); r2.append(el('span', null, 'Scene:'));
+  const sc = sceneSelect(st.scenes, d.scene); r2.append(sc); m.appendChild(r2);
+  const btn = el('button', 'primary', d.sources.length ? 'Add to scene / fix' : 'Add Discord audio');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const r = await api('/api/obs/discord', { scene: sc.value });
+      toast(r.created ? 'Added "' + r.name + '" to ' + r.scene : r.added ? '"' + r.name + '" added to ' + r.scene : '"' + r.name + '" is already in ' + r.scene + ' (matching fixed)');
+      close();
+    } catch (e) { toast(e.message, true); btn.disabled = false; }
+  };
+  m.appendChild(btn);
+  m.appendChild(el('div', 'muted small', 'Uses one Discord source everywhere (added to other scenes as a copy that shares settings), on Stream + the Discord recording track.'));
+};
+
+async function pickRegion(scene, replace) {
+  toast('Drag a box on your screen (or click a window). Esc cancels.');
+  try {
+    const r = await api('/api/obs/region', { scene, replace });
+    if (r.cancelled) return toast('Cancelled');
+    toast((replace ? 'Updated "' : 'Added "') + r.name + '" (' + r.w + '×' + r.h + ') to ' + r.scene);
+  } catch (e) { toast(e.message, true); }
+}
+$('#addRegion').onclick = async () => {
+  let d; try { d = await api('/api/obs/regions'); } catch (e) { return toast(e.message, true); }
+  if (!d.regions.length) return pickRegion(d.scene, '');
+  const { m, close } = modal('Screen region');
+  const b = el('button', 'primary', '＋ New region in ' + d.scene); b.onclick = () => { close(); pickRegion(d.scene, ''); };
+  m.appendChild(b);
+  m.appendChild(el('div', 'sec', 'Or re-select an existing one'));
+  const list = el('div', 'pick');
+  for (const n of d.regions) { const x = el('button'); x.append(el('b', null, n), el('small', null, 'drag a new area')); x.onclick = () => { close(); pickRegion(d.scene, n); }; list.appendChild(x); }
+  m.appendChild(list);
+};
+
+(function open() {
+  const es = new EventSource('/obs-events?view=scenes');
+  es.onmessage = m => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'state') { Object.assign(thumbs, ev.thumbs || {}); st = ev; header(); draw(); }
+    else if (ev.type === 'thumb') updateThumb(ev.scene, { img: ev.img, stale: ev.stale, dark: ev.dark });
+  };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; header(); draw(); setTimeout(open, 2000); };
+})();
+</script>
+</body>
+</html>
