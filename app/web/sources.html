@@ -249,11 +249,7 @@ $('#addMore').onclick = async () => {
 };
 
 // ---------------- live updates
-(function open() {
-  const es = new EventSource('/obs-events?view=sources');
-  es.onmessage = m => { const ev = JSON.parse(m.data); if (ev.type === 'state') { st = ev; draw(); } };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; draw(); setTimeout(open, 1000); };
-})();
+liveSocket('/obs-events?view=sources', ev => { if (ev.type === 'state') { st = ev; draw(); } }, () => { st = { ...st, connected: false, reconnecting: true }; draw(); });
 </script>
 </body>
 </html>

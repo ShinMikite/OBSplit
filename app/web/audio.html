@@ -384,17 +384,12 @@ function pill() {
   p.title = st.connected ? 'Connected to OBS' : st.reconnecting ? 'The OBSplit helper is restarting. This fixes itself.' : (st.error || '');
 }
 
-(function open() {
-  const es = new EventSource('/obs-events?view=audio');
-  es.onmessage = m => {
-    const ev = JSON.parse(m.data);
+liveSocket('/obs-events?view=audio', ev => {
     if (ev.type === 'state') { st = ev; pill(); drawMixer(); }
     else if (ev.type === 'meters') meters(ev.m);
     else if (ev.type === 'mix') { mix = ev; if (tab === 'mix') drawMix(); }
     else if (ev.type === 'note') toast(ev.text);
-  };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; pill(); drawMixer(); setTimeout(open, 1000); };
-})();
+}, () => { st = { ...st, connected: false, reconnecting: true }; pill(); drawMixer(); });
 </script>
 </body>
 </html>

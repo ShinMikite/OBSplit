@@ -25,6 +25,7 @@ import re
 import secrets
 import socket
 import sqlite3
+import struct
 import subprocess
 import sys
 import threading
@@ -39,6 +40,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import obslink  # noqa: E402
+import layoutguard  # noqa: E402
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(APP_DIR, "web")
@@ -956,6 +958,10 @@ def obs_watchdog():
         misses = 0 if running else misses + 1
         if misses >= 2:
             log("OBS closed; exiting")
+            try:
+                layoutguard.on_obs_closed(log)   # save or put back the locked panel layout
+            except Exception as e:
+                log("layout lock failed", repr(e))
             os._exit(0)
 
 
@@ -1011,11 +1017,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def body(self, limit=6 * 1024 * 1024):
+    def _read_body(self, limit=6 * 1024 * 1024):
+        """Read the whole request body up front, every time. Leaving any of it unread would corrupt the next
+        request on the same connection (the panel would see a failed click)."""
         n = int(self.headers.get("Content-Length") or 0)
-        if n > limit:
+        self._too_big = n > limit
+        if self._too_big:
+            self._raw = b""
+            self.close_connection = True   # don't read megabytes we won't use; just drop this connection
+        else:
+            self._raw = self.rfile.read(n) if n else b""
+
+    def body(self, limit=6 * 1024 * 1024):
+        if getattr(self, "_too_big", False):
             raise ApiError(413, "File too large (YouTube thumbnails must be under 2 MB).")
-        return self.rfile.read(n) if n else b""
+        return getattr(self, "_raw", b"")
 
     def jbody(self):
         raw = self.body()
@@ -1047,6 +1063,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                "scenes": APP.obs.state.get("scenes", [])})
                     if p == "/api/obs/discord":
                         return self.send_json(APP.obs.discord_status())
+                    if p == "/api/obs/layout":
+                        return self.send_json(layoutguard.status())
                     if p == "/api/obs/regions":
                         return self.send_json({"regions": APP.obs.region_sources(), "scene": APP.obs.target_scene()})
                     if p == "/api/obs/mic":
@@ -1123,26 +1141,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return {"status": APP.hub.status, "config": c, "has_client": APP.google.client() is not None,
                 "connected": APP.google.connected(), "quota": APP.quota.used()}
 
-    def sse(self):
-        q, snap = APP.hub.subscribe()
-        try:
+    # --- live updates: WebSocket (used by the panels; it doesn't use up the browser's limit of 6
+    #     connections per address, so button clicks never have to wait) or Server-Sent Events (fallback)
+    WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+    def _stream_open(self):
+        origin = self.headers.get("Origin")
+        if origin and origin.replace("http://", "") not in ALLOWED_HOSTS:
+            self.send_text("forbidden", 403, "text/plain")   # other websites may not read your panels
+            return False
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            accept = base64.b64encode(hashlib.sha1((key + self.WS_GUID).encode()).digest()).decode()
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            self._ws = True
+        else:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            hello = {"type": "hello", **self.state(), "recent": snap[-400:]}
-            self.wfile.write(b"data: " + json.dumps(hello, ensure_ascii=False).encode() + b"\n\n")
-            self.wfile.flush()
+            self._ws = False
+        return True
+
+    def _ws_frame(self, op, payload):
+        n = len(payload)
+        if n < 126:
+            head = bytes([0x80 | op, n])
+        elif n < 65536:
+            head = bytes([0x80 | op, 126]) + struct.pack(">H", n)
+        else:
+            head = bytes([0x80 | op, 127]) + struct.pack(">Q", n)
+        return head + payload
+
+    def _stream_send(self, obj):
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.wfile.write(self._ws_frame(0x1, data) if self._ws else b"data: " + data + b"\n\n")
+        self.wfile.flush()
+
+    def _stream_ping(self):
+        self.wfile.write(self._ws_frame(0x9, b"") if self._ws else b": ping\n\n")
+        self.wfile.flush()
+
+    def sse(self):
+        q, snap = APP.hub.subscribe()
+        try:
+            if not self._stream_open():
+                return
+            self._stream_send({"type": "hello", **self.state(), "recent": snap[-400:]})
             while True:
                 try:
                     ev = q.get(timeout=15)
                     if ev.get("type") in ("status", "settings"):
                         ev = {**ev, **{"connected": APP.google.connected()}}
-                    self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
+                    self._stream_send(ev)
                 except queue.Empty:
-                    self.wfile.write(b": ping\n\n")
-                self.wfile.flush()
+                    self._stream_ping()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
@@ -1190,18 +1248,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         q.thumbs = want_thumbs
         q.view = view
         try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
+            if not self._stream_open():
+                return
             hello = {"type": "state", **APP.obs.snapshot()}
             if want_thumbs:
                 th = {s: {"img": img, "stale": True, "dark": False} for s, img in APP.obs.last_live.items()}
                 th.update(APP.obs.thumbs)
                 hello["thumbs"] = th
-            self.wfile.write(b"data: " + json.dumps(hello, ensure_ascii=False).encode() + b"\n\n")
-            self.wfile.flush()
+            self._stream_send(hello)
             while True:
                 try:
                     ev = q.get(timeout=15)
@@ -1209,10 +1263,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         continue
                     if ev.get("type") in ("meters", "mix") and view != "audio":
                         continue
-                    self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
+                    self._stream_send(ev)
                 except queue.Empty:
-                    self.wfile.write(b": ping\n\n")
-                self.wfile.flush()
+                    self._stream_ping()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
@@ -1268,6 +1321,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # --- POST
     def do_POST(self):
+        self._read_body()
         if not self._host_ok() or self.headers.get("X-Panel") != "1":
             return self.send_text("forbidden", 403, "text/plain")
         p = urllib.parse.urlparse(self.path).path
@@ -1324,6 +1378,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"ok": True, **APP.obs.add_discord(b)})
                     elif p == "/api/obs/region":
                         return self.send_json({"ok": True, **APP.obs.add_region(b)})
+                    elif p == "/api/obs/layout":
+                        a = b.get("action")
+                        st = layoutguard.request_lock() if a in ("lock", "update") else \
+                            layoutguard.unlock() if a == "unlock" else None
+                        if st is None:
+                            return self.send_json({"error": "Unknown layout action."}, 400)
+                        return self.send_json({"ok": True, **st})
                     elif p == "/api/obs/mix":
                         return self.send_json({"ok": True, "auto": APP.obs.set_mix(b)})
                     elif p == "/api/obs/item":

@@ -123,15 +123,10 @@ function updateThumb(scene, th) {
   fillThumb(c, scene);
 }
 
-(function open() {
-  const es = new EventSource('/obs-events?view=scenes');
-  es.onmessage = m => {
-    const ev = JSON.parse(m.data);
+liveSocket('/obs-events?view=scenes', ev => {
     if (ev.type === 'state') { Object.assign(thumbs, ev.thumbs || {}); st = ev; header(); draw(); }
     else if (ev.type === 'thumb') updateThumb(ev.scene, { img: ev.img, stale: ev.stale, dark: ev.dark });
-  };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; header(); draw(); setTimeout(open, 1000); };
-})();
+}, () => { st = { ...st, connected: false, reconnecting: true }; header(); draw(); });
 </script>
 </body>
 </html>

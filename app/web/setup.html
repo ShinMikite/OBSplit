@@ -49,9 +49,18 @@
       <tr><td>YT Stream Info</td><td><code>http://127.0.0.1:47821/info</code></td></tr>
       <tr><td>YT Stats</td><td><code>http://127.0.0.1:47821/stats</code></td></tr>
       <tr><td>Scenes+</td><td><code>http://127.0.0.1:47821/scenes</code></td></tr>
+      <tr><td>Sources+</td><td><code>http://127.0.0.1:47821/sources</code></td></tr>
       <tr><td>Audio+</td><td><code>http://127.0.0.1:47821/audio</code></td></tr>
       <tr><td>OBSplit Setup</td><td><code>http://127.0.0.1:47821/</code></td></tr>
     </table>
+  </div>
+
+  <h2><span id="c5" class="chk">5</span> Lock my panel layout</h2>
+  <div class="box small">
+    <div id="layoutState" style="margin-bottom:6px"></div>
+    <div class="row-flex" id="layoutBtns"></div>
+    <p class="muted" style="margin:6px 0 0">OBS only saves its layout when it closes, and can lose it after a crash or when an account is connected.
+      Once locked, OBSplit puts your exact layout and sizes back every time OBS closes, and uses it for your YouTube layout too.</p>
   </div>
   <p class="muted small" id="quota"></p>
 </div>
@@ -59,6 +68,22 @@
 <script>
 let st = {};
 const open = url => api('/api/open', { url }).catch(e => toast(e.message, true));
+
+async function drawLayout(s) {
+  if (!s) { try { s = await api('/api/obs/layout'); } catch (e) { return; } }
+  const msg = { off: 'Not locked. OBS saves and restores the layout on its own.',
+    pending: '⏳ Will be saved when you close OBS. Arrange your panels the way you want them, then close OBS once.',
+    locked: '🔒 Locked' + (s.saved_at ? ' (saved ' + s.saved_at + ')' : '') + '. Your layout is put back every time OBS closes.' +
+      (s.restores ? ' Fixed ' + s.restores + ' time' + (s.restores === 1 ? '' : 's') + (s.restored_at ? ', last ' + s.restored_at : '') + '.' : '') };
+  $('#layoutState').textContent = msg[s.mode] || '';
+  $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : '5';
+  const btns = $('#layoutBtns'); btns.innerHTML = '';
+  const b = (label, action, cls) => { const x = el('button', cls, label); x.onclick = () => api('/api/obs/layout', { action }).then(drawLayout).catch(e => toast(e.message, true)); btns.appendChild(x); };
+  if (s.mode === 'off') b('Lock my layout', 'lock', 'primary');
+  if (s.mode === 'pending') b('Cancel', 'unlock');
+  if (s.mode === 'locked') { b('Update my saved layout', 'update'); b('Unlock', 'unlock'); }
+}
+drawLayout();
 const L = (text, url) => `<span class="link" data-url="${url}">${text}</span>`;
 document.addEventListener('click', e => { const u = e.target.dataset && e.target.dataset.url; if (u) open(u); });
 

@@ -22,16 +22,18 @@ function toast(msg, err) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', err ? 6000 : 2500);
 }
 
-// Live connection to the server. onEvent(ev) gets every event; reconnects automatically.
-function connect(onEvent) {
-  let es;
+// Live connection to the helper over a WebSocket. (Not EventSource: OBS's panels share one browser, which
+// allows only 6 ordinary connections per address; long-lived ones would use them up and make clicks wait.)
+// onEvent(ev) gets every event; onDown() runs when the connection drops; it reconnects by itself.
+function liveSocket(path, onEvent, onDown) {
   const open = () => {
-    es = new EventSource('/events');
-    es.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
-    es.onerror = () => { onEvent({ type: 'disconnected' }); es.close(); setTimeout(open, 1000); };
+    const ws = new WebSocket('ws://' + location.host + path);
+    ws.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
+    ws.onclose = () => { if (onDown) onDown(); setTimeout(open, 1000); };
   };
   open();
 }
+function connect(onEvent) { liveSocket('/events', onEvent, () => onEvent({ type: 'disconnected' })); }
 
 // Reload this panel by itself when the panel files are updated (never while typing or in a popup).
 (function autoReload() {
