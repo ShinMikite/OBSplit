@@ -13,6 +13,8 @@
 - **+ New: Low latency by default** (about 5–10 s behind instead of up to a minute with Normal). Each option now says roughly how far behind viewers will be; your choice is remembered once you pick one yourself.
 - **YT Chat: instant sending.** Your message appears the moment you press Enter (dimmed until YouTube confirms it), and chat checks for new messages every half second for a few seconds after you send. If sending fails, your text is put back in the box.
 - **Quieter launcher:** a routine helper restart no longer pops up OBS's Script Log window. It only warns, once, if the helper keeps stopping (4 times within a minute).
+- **Fix: panels said Live for a stream that hadn't started.** Right after creating a stream, YouTube's public page can briefly look live; OBSplit now treats "upcoming" correctly and, when YouTube is connected, confirms with YouTube before showing Live (at most once a minute while live, every 10 minutes while upcoming).
+- **Fix: the thumbnail file picker opened on a strange "PJP File" filter.** It now shows JPG and PNG files plainly.
 - **Fix: unlisted streams showed as offline** and their chat didn't load. YouTube's public "live" page only shows public streams; while OBS is streaming, OBSplit now also asks YouTube directly (1 unit a minute) and finds unlisted streams too.
 - **Stream keys list:** your own keys come first; the dozens of leftover keys XSplit and Restream created (one per stream) are folded behind one "Show older keys" entry, with plain labels like "Made by Restream, May 15, 2023".
 - **Stream keys:** if YouTube has a server hiccup while listing your stream keys, OBSplit asks again with fewer details instead of showing an error.

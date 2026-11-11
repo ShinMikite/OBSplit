@@ -827,11 +827,38 @@ class ChatWorker(threading.Thread):
             return self.find_unlisted_live()
         title = re.search(r'<meta name="title" content="([^"]*)"', html)
         title = title.group(1) if title else ""
-        if '"isLiveNow":true' in html or '"isLive":true' in html:
-            return m.group(1), "live", title
+        # a stream that hasn't started can carry live-looking flags too, so "upcoming" wins
         if '"isUpcoming":true' in html:
-            return m.group(1), "upcoming", title
-        return self.find_unlisted_live()
+            state = "upcoming"
+        elif '"isLiveNow":true' in html or '"isLive":true' in html:
+            state = "live"
+        else:
+            return self.find_unlisted_live()
+        state = self.confirm_state(m.group(1), state)
+        if state is None:
+            return self.find_unlisted_live()
+        return m.group(1), state, title
+
+    def confirm_state(self, vid, guess):
+        """The public page can be briefly wrong right after a stream is created. When YouTube is connected, ask it
+        (1 unit, at most once a minute per stream) whether the stream is really live, upcoming or over."""
+        cache = getattr(self, "_confirmed", {})
+        self._confirmed = cache
+        hit = cache.get((vid, guess))     # a change on the page (upcoming -> live) is always checked straight away
+        if hit and time.time() - hit[0] < (60 if guess == "live" else 600):
+            return hit[1]
+        try:
+            if not (APP and APP.google.connected()):
+                return guess
+            r = APP.google.request("GET", "/videos", {"part": "snippet", "id": vid}, cost=1)
+            items = r.get("items") or []
+            lbc = items[0]["snippet"].get("liveBroadcastContent") if items else "none"
+        except Exception as e:
+            log("live state check failed", repr(e)[:200])
+            return guess
+        state = {"live": "live", "upcoming": "upcoming"}.get(lbc)   # "none" = not live (any more)
+        cache[(vid, guess)] = (time.time(), state)
+        return state
 
     def find_unlisted_live(self):
         """The /live page only ever shows public streams. While OBS is streaming, ask YouTube directly (1 unit) so

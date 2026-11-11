@@ -124,7 +124,7 @@ function draw() {
         <li>Drop that downloaded file below. A brand-new key can take a few minutes to start working; if YouTube shows an error right away, wait a few minutes and try again.</li>
       </ol>
       <div id="drop">Drop the downloaded <b>client_secret_….json</b> here, or click to choose it</div>
-      <input id="cf" type="file" accept=".json,application/json" hidden></div>`;
+      <input id="cf" type="file" accept=".json" hidden></div>`;
     const d = $('#drop');
     d.onclick = () => $('#cf').click();
     d.ondragover = e => { e.preventDefault(); d.classList.add('drag'); };
