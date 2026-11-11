@@ -41,6 +41,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import obslink  # noqa: E402
 import layoutguard  # noqa: E402
+import quality  # noqa: E402
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(APP_DIR, "web")
@@ -1012,6 +1013,7 @@ class App:
         self.stats = StatsWorker(self.hub, self.google)
         self.categories = None
         self.obs = obslink.ObsLink(self.config, log)
+        self.quality = quality.Quality(self.obs, log, lambda: (self.hub.stats or {}).get("health"))
 
 
 APP = None
@@ -1101,6 +1103,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json(APP.obs.add_menu())
                 except obslink.ObsError as e:
                     return self.send_json({"error": str(e)}, 400)
+            if p == "/api/quality":
+                return self.send_json(APP.quality.status())
             if p == "/api/ping":
                 build = int(max((os.path.getmtime(os.path.join(WEB_DIR, f)) for f in os.listdir(WEB_DIR)),
                                 default=0))
@@ -1395,6 +1399,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 APP.chat.wake.set()
                 APP.hub.publish({"type": "settings", **self.state()})
                 return self.send_json({"ok": True})
+            if p == "/api/quality":
+                b = self.jbody()
+                try:
+                    a = b.get("action")
+                    if a == "apply":
+                        r = APP.quality.apply(b.get("preset") or "recommended")
+                    elif a == "undo":
+                        r = APP.quality.undo()
+                    elif a == "test_upload":
+                        r = APP.quality.test_upload()
+                    elif a == "auto":
+                        APP.quality.set_auto(b.get("on"))
+                        r = {}
+                    else:
+                        raise ApiError(400, "Unknown action.")
+                except (quality.QualityError, obslink.ObsError) as e:
+                    raise ApiError(400, str(e))
+                return self.send_json({"ok": True, **r, "status": APP.quality.status()})
             if p == "/api/open":
                 url = self.jbody().get("url") or ""
                 if not re.match(r"^https://(console\.cloud\.google\.com|studio\.youtube\.com|www\.youtube\.com)/", url):
@@ -1734,6 +1756,7 @@ def main():
     APP = App()
     APP.chat.start()
     APP.stats.start()
+    APP.quality.start()
     if "--with-obs" in sys.argv:
         threading.Thread(target=obs_watchdog, daemon=True, name="watchdog").start()
     threading.Thread(target=heartbeat, daemon=True, name="heartbeat").start()

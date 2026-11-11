@@ -23,6 +23,13 @@
   td:first-child { width: 34%; }
   #main, .box, li { overflow-wrap: anywhere; }
   .bar b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .qopt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    margin: 6px 0; cursor: pointer; }
+  .qopt.sel { border-color: var(--accent); }
+  .qopt input { margin-top: 3px; }
+  .qopt .sum { color: var(--muted); font-size: .9em; }
+  .qwarn { color: var(--warn, #e0a400); margin: 4px 0; }
+  .qnote { color: var(--muted); font-size: .9em; margin: 2px 0 0; }
 </style>
 </head>
 <body>
@@ -62,6 +69,9 @@
     <p class="muted" style="margin:6px 0 0">OBS only saves its layout when it closes, and can lose it after a crash or when an account is connected.
       Once locked, OBSplit puts your exact layout and sizes back every time OBS closes, and uses it for your YouTube layout too.</p>
   </div>
+
+  <h2><span id="c6" class="chk">6</span> Stream quality</h2>
+  <div class="box small" id="quality">Loading…</div>
   <p class="muted small" id="quota"></p>
 </div>
 <script src="/static/common.js"></script>
@@ -153,6 +163,55 @@ connect(ev => {
   else if (ev.type === 'status') { st.status = ev; st.connected = ev.connected; statusPill($('#pill'), ev); }
   else if (ev.type === 'disconnected') statusPill($('#pill'), { state: 'disconnected' });
 });
+// ---------- stream quality
+let q = null, qPick = null, qBusy = false;
+async function loadQuality() { try { q = await api('/api/quality'); drawQuality(); } catch (e) { $('#quality').textContent = e.message; } }
+function drawQuality() {
+  const box = $('#quality'); box.innerHTML = '';
+  if (!q || q.error) { box.textContent = (q && q.error) || 'OBS isn\'t connected.'; return; }
+  const applied = q.preset && !q.issues.length;
+  $('#c6').className = 'chk' + (applied ? ' done' : ''); $('#c6').textContent = applied ? '✓' : '6';
+  box.appendChild(el('div', null, 'Now: ' + q.current_label));
+  for (const i of q.issues) box.appendChild(el('div', 'qwarn', i));
+  if (q.restart_needed) box.appendChild(el('div', 'qwarn', 'Restart OBS once to finish switching the video format.'));
+  qPick = qPick || q.preset || 'recommended';
+  for (const [k, p] of Object.entries(q.plans)) {
+    const row = el('label', 'qopt' + (qPick === k ? ' sel' : ''));
+    const r = el('input'); r.type = 'radio'; r.name = 'qp'; r.checked = qPick === k; r.onchange = () => { qPick = k; drawQuality(); };
+    const t = el('div'); t.appendChild(el('b', null, p.label + (q.preset === k ? '  (in use)' : '')));
+    t.appendChild(el('div', 'sum', p.summary + (p.maker ? ' on your ' + p.maker + ' graphics card' : '')));
+    for (const n of p.notes) t.appendChild(el('div', 'qnote', n));
+    row.append(r, t); box.appendChild(row);
+  }
+  const up = el('div'); up.style.margin = '8px 0';
+  up.appendChild(document.createTextNode('Upload speed: ' + (q.upload_kbps ? (q.upload_kbps / 1000).toFixed(1) + ' Mbps (tested ' + q.upload_at + ') ' : 'not tested ')));
+  const tb = el('button', null, q.testing ? 'Testing…' : (q.upload_kbps ? 'Test again' : 'Test my upload'));
+  tb.disabled = qBusy || q.testing || q.busy === 'streaming';
+  tb.title = 'Uploads random data to Cloudflare\'s public speed test for about 8 seconds. Nothing personal is sent.';
+  tb.onclick = () => qAct({ action: 'test_upload' }, 'Testing upload… about 15–20 seconds', d => 'Upload: ' + (d.upload_kbps / 1000).toFixed(1) + ' Mbps');
+  up.appendChild(tb); box.appendChild(up);
+  const btns = el('div', 'row-flex');
+  const ap = el('button', 'primary', q.preset === qPick && !q.issues.length ? 'Apply again' : 'Apply');
+  ap.disabled = qBusy || !!q.busy;
+  ap.onclick = () => qAct({ action: 'apply', preset: qPick }, 'Applying…', d => d.restart_needed ? 'Applied. Restart OBS once to switch the video format.' : 'Applied');
+  btns.appendChild(ap);
+  if (q.has_backup) { const u = el('button', null, 'Undo (put my old settings back)'); u.disabled = qBusy || !!q.busy; u.onclick = () => qAct({ action: 'undo' }, 'Putting your settings back…', d => d.restart_needed ? 'Done. Restart OBS once to finish.' : 'Your old settings are back'); btns.appendChild(u); }
+  box.appendChild(btns);
+  if (q.busy) box.appendChild(el('div', 'qnote', 'Stop ' + q.busy + ' to change quality settings.'));
+  const au = el('label', 'opt'); au.style.marginTop = '8px';
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = q.auto; cb.onchange = () => qAct({ action: 'auto', on: cb.checked });
+  au.append(cb, document.createTextNode(' Check each stream and adjust the bitrate for next time')); box.appendChild(au);
+  if (q.report) box.appendChild(el('div', 'qnote', 'Last stream (' + q.report.at + ', ' + q.report.minutes + ' min): ' + q.report.message));
+  box.appendChild(el('div', 'qnote', 'Also sets 2-second keyframes, constant bitrate, Limited color and OBS\'s automatic bitrate drop when the connection struggles. Your old settings are saved first. Only changes anything while you\'re not live.'));
+}
+async function qAct(body, busyMsg, okMsg) {
+  qBusy = true; drawQuality(); if (busyMsg) toast(busyMsg);
+  try { const d = await api('/api/quality', body); q = d.status; if (okMsg) toast(okMsg(d)); }
+  catch (e) { toast(e.message, true); }
+  qBusy = false; drawQuality();
+}
+loadQuality(); setInterval(() => { if (!qBusy) loadQuality(); }, 15000);
+
 setInterval(() => api('/api/state').then(d => { st = { ...st, ...d }; $('#quota').textContent = 'YouTube API units used today: ' + fmtNum(d.quota) + ' of 10,000 (resets midnight Pacific). Reading chat uses none.'; }).catch(() => {}), 30000);
 </script>
 </body>
