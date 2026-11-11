@@ -20,6 +20,7 @@ local shell32 = ffi.load("shell32")
 
 local python, server, appdir, datadir = nil, nil, nil, nil
 local last_launch = 0
+local restarts, warned = {}, false   -- recent restart times; warn only if it keeps stopping
 local CHECK_MS = 3000      -- how often to check the helper
 local STALE_S = 7          -- heartbeat older than this = not answering (it beats every 2 s)
 local RETRY_S = 10         -- don't restart more often than this
@@ -95,7 +96,17 @@ end
 local function watchdog()
     if not (python and server) then return end
     if heartbeat_age() > STALE_S and os.time() - last_launch > RETRY_S then
-        obs.script_log(obs.LOG_WARNING, "OBSplit helper not answering; restarting it")
+        -- A single restart is routine (e.g. after an update) and is logged quietly: OBS pops up the Script Log
+        -- for warnings. Only warn, once, if the helper keeps stopping.
+        local now = os.time()
+        table.insert(restarts, now)
+        while restarts[1] and now - restarts[1] > 60 do table.remove(restarts, 1) end
+        if #restarts >= 4 and not warned then
+            warned = true
+            obs.script_log(obs.LOG_WARNING, "OBSplit helper keeps stopping; see data\\server.log next to the app")
+        else
+            obs.script_log(obs.LOG_INFO, "OBSplit helper not answering; restarting it")
+        end
         launch(false)
     end
 end
@@ -130,7 +141,7 @@ function script_load(s)
     -- The main launcher loads just before this one and waits until the helper is up. If the helper still
     -- isn't answering, the main launcher didn't run: start it now, before OBS creates the panels.
     if not helper_running() then
-        obs.script_log(obs.LOG_WARNING, "OBSplit: main launcher didn't start the helper; starting it")
+        obs.script_log(obs.LOG_INFO, "OBSplit: main launcher didn't start the helper; starting it")
         launch(true)
     end
     obs.timer_add(watchdog, CHECK_MS)

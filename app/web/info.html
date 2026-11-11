@@ -208,14 +208,16 @@ async function newForm() {
     <label class="opt"><input id="nAutoStart" type="checkbox" checked> Go live automatically when OBS starts sending</label>
     <label class="opt"><input id="nAutoStop" type="checkbox" checked> End the stream automatically when OBS stops</label>
     <label class="opt"><input id="nDvr" type="checkbox" checked> Let viewers rewind (DVR)</label>
-    <label class="opt">Latency <select id="nLat" style="width:auto"><option value="normal">Normal (best quality)</option><option value="low">Low</option><option value="ultraLow">Ultra-low (fastest chat replies)</option></select></label>
+    <label class="opt">Latency <select id="nLat" style="width:auto" title="How far behind your viewers are. Can't be changed once you're live."><option value="low">Low: about 5–10 s behind (recommended)</option><option value="ultraLow">Ultra-low: about 2–5 s, no 1440p/4K or captions</option><option value="normal">Normal: 15–60 s behind, smoothest on slow connections</option></select></label>
     <div class="keybox" id="keyBox"></div>
     <div id="saveBar"><button id="create" class="primary">Create stream</button><button id="cancel">Cancel</button><span class="muted small">Uses about 150 API units. Add a thumbnail right after.</span></div>`;
   $('#nCat').innerHTML = cats.map(c => `<option value="${c.id}">${c.title.replace(/</g, '')}</option>`).join('');
   $('#nTitle').value = p.title || ''; $('#nDesc').value = p.description || ''; $('#nCat').value = p.categoryId || '20';
   $('#nPriv').value = p.privacy || 'public'; $('#nTags').value = (p.tags || []).join(', ');
   $('#nKids').checked = !!p.madeForKids; $('#nAutoStart').checked = p.autoStart !== false; $('#nAutoStop').checked = p.autoStop !== false;
-  $('#nDvr').checked = p.dvr !== false; $('#nLat').value = p.latency || 'normal';
+  // latency is only remembered once you've picked one yourself (older versions defaulted to Normal)
+  $('#nDvr').checked = p.dvr !== false; $('#nLat').value = (p.latencyPicked && p.latency) || 'low';
+  let latPicked = !!p.latencyPicked; $('#nLat').onchange = () => { latPicked = true; };
   const t = new Date(Date.now() + 3600e3); t.setMinutes(0, 0, 0);
   $('#nWhen').value = new Date(t - t.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
   $('#nWhen').onfocus = () => { document.querySelector('input[name=when][value=later]').checked = true; };
@@ -227,7 +229,7 @@ async function newForm() {
     const body = { title: $('#nTitle').value.trim(), description: $('#nDesc').value, categoryId: $('#nCat').value,
       privacy: $('#nPriv').value, tags: $('#nTags').value.split(',').map(x => x.trim()).filter(Boolean),
       when: later ? $('#nWhen').value : '', madeForKids: $('#nKids').checked, autoStart: $('#nAutoStart').checked,
-      autoStop: $('#nAutoStop').checked, dvr: $('#nDvr').checked, latency: $('#nLat').value,
+      autoStop: $('#nAutoStop').checked, dvr: $('#nDvr').checked, latency: $('#nLat').value, latencyPicked: latPicked,
       streamId: ($('#streamKey') || {}).value || '' };
     if (!body.title) return toast('Give the stream a title.', true);
     $('#create').disabled = true;

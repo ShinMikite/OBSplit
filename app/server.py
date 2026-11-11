@@ -811,7 +811,9 @@ class ChatWorker(threading.Thread):
     def __init__(self, hub, config):
         super().__init__(name="chat")
         self.hub, self.config = hub, config
-        self.wake = threading.Event()
+        self.wake = threading.Event()     # settings changed: re-check which stream to follow
+        self.poke = threading.Event()     # just sent a message: poll the chat again now
+        self.fast_until = 0.0             # poll quickly until then, so your own message comes back sooner
 
     def find_live_video(self):
         """Free check of the channel's /live page. Returns (video_id, state, title) or (None, ...)."""
@@ -821,14 +823,30 @@ class ChatWorker(threading.Thread):
         html = http_get(f"https://www.youtube.com/channel/{ch}/live", headers={"Cookie": "CONSENT=YES+1"})
         m = re.search(r'<link rel="canonical" href="https://www\.youtube\.com/watch\?v=([\w-]{11})"', html)
         if not m:
-            return None, "offline", ""
+            return self.find_unlisted_live()
         title = re.search(r'<meta name="title" content="([^"]*)"', html)
         title = title.group(1) if title else ""
         if '"isLiveNow":true' in html or '"isLive":true' in html:
             return m.group(1), "live", title
         if '"isUpcoming":true' in html:
             return m.group(1), "upcoming", title
-        return None, "offline", ""
+        return self.find_unlisted_live()
+
+    def find_unlisted_live(self):
+        """The /live page only ever shows public streams. While OBS is streaming, ask YouTube directly (1 unit) so
+        unlisted streams are found too. Private streams can be found but their chat can't be read without signing in."""
+        try:
+            if not (APP and APP.google.connected() and APP.obs.request("GetStreamStatus").get("outputActive")):
+                return None, "offline", ""
+            r = APP.google.request("GET", "/liveBroadcasts", {"part": "snippet", "broadcastStatus": "active",
+                                                              "broadcastType": "all", "maxResults": 5}, cost=1)
+        except Exception as e:
+            log("live check via API failed", repr(e)[:200])
+            return None, "offline", ""
+        items = r.get("items") or []
+        if not items:
+            return None, "offline", ""
+        return items[0]["id"], "live", (items[0].get("snippet") or {}).get("title", "")
 
     def run(self):
         current = None
@@ -860,7 +878,13 @@ class ChatWorker(threading.Thread):
                     actions, hist, wait = chat.poll()
                     if actions:
                         self.hub.handle_actions(vid, actions, hist)
-                    if self.wake.wait(wait):
+                    if time.time() < self.fast_until:
+                        wait = 0.5
+                    end = time.time() + wait
+                    while time.time() < end and not self.wake.is_set() and not self.poke.is_set():
+                        time.sleep(0.1)
+                    self.poke.clear()
+                    if self.wake.is_set():
                         self.wake.clear()
                         break  # settings changed -> re-evaluate target
                     if not override and time.time() - last_check > 60:
@@ -1444,6 +1468,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 APP.google.request("POST", "/liveChat/messages", {"part": "snippet"}, {"snippet": {
                     "liveChatId": cid, "type": "textMessageEvent", "textMessageDetails": {"messageText": text}}},
                                    cost=20)
+                APP.chat.fast_until = time.time() + 10
+                APP.chat.poke.set()
                 return self.send_json({"ok": True})
             if p == "/api/delete":
                 mid = APP.hub.api_message_id(self.jbody().get("id"))
@@ -1580,7 +1606,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ApiError(400, "Pick a time in the future.")
         else:
             start = datetime.now(timezone.utc)
-        latency = b.get("latency") if b.get("latency") in ("normal", "low", "ultraLow") else "normal"
+        latency = b.get("latency") if b.get("latency") in ("normal", "low", "ultraLow") else "low"
         privacy = b.get("privacy") if b.get("privacy") in ("public", "unlisted", "private") else "public"
         body = {"snippet": {"title": title, "description": (b.get("description") or "")[:5000],
                             "scheduledStartTime": start.strftime("%Y-%m-%dT%H:%M:%S.000Z")},
@@ -1598,7 +1624,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.update_video({"id": bid, "title": title, "description": body["snippet"]["description"],
                                "categoryId": b.get("categoryId"), "tags": b.get("tags") or []})
         keep = {k: b.get(k) for k in ("title", "description", "categoryId", "tags", "privacy", "madeForKids",
-                                      "autoStart", "autoStop", "latency", "dvr", "streamId")}
+                                      "autoStart", "autoStop", "latency", "latencyPicked", "dvr", "streamId")}
         APP.config.update(last_broadcast=keep)
         APP.chat.wake.set()
         return self.video(bid)

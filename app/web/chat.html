@@ -10,6 +10,7 @@
   .msg { position: relative; padding: 3px 8px 3px 8px; word-wrap: break-word; border-left: 3px solid transparent; }
   .msg:hover { background: rgba(255,255,255,.035); }
   .msg.hl { background: var(--hl); border-left-color: var(--accent); }
+  .msg.pending { opacity: .55; }
   .msg.first { border-left-color: var(--ok); }
   .msg.del .text { text-decoration: line-through; opacity: .45; }
   .msg.del .text::after { content: " (deleted)"; font-size: .8em; text-decoration: none; display: inline-block; }
@@ -230,11 +231,30 @@ function updateInput() {
   msgIn.placeholder = !connected ? 'Connect YouTube on the Setup panel to chat'
     : !live ? 'Not live right now' : 'Send a message…  (Tab = complete @names)';
 }
+// Your message shows up right away (dimmed) instead of after YouTube's chat feed sends it back a few seconds
+// later; the real one replaces it when it arrives.
+const pendingText = segs => (segs || []).map(s => s.t || s.alt || '').join('').replace(/\s+/g, ' ').trim();
 async function send() {
   const t = msgIn.value.trim(); if (!t) return;
-  $('#send').disabled = true;
-  if (await act('/api/send', { text: t })) { sent.unshift(t); sentIdx = -1; msgIn.value = ''; $('#count').textContent = ''; }
-  $('#send').disabled = false; msgIn.focus();
+  sent.unshift(t); sentIdx = -1; msgIn.value = ''; $('#count').textContent = '';
+  const row = render({ kind: 'text', ts: Date.now(), ch: cfg.channel_id, name: cfg.channel_title || 'You', segs: [{ t }] });
+  row.classList.add('pending'); row.dataset.pending = pendingText([{ t }]); row.title = 'Sending…';
+  list.appendChild(row); list.scrollTop = list.scrollHeight; pinned = true;
+  try {
+    await api('/api/send', { text: t });
+    row.title = 'Sent';
+    // if YouTube's copy never matches (e.g. it changed an emoji), stop showing it as pending
+    setTimeout(() => { if (row.isConnected) { row.classList.remove('pending'); row.removeAttribute('title'); delete row.dataset.pending; } }, 15000);
+  } catch (e) {
+    row.remove(); toast(e.message, true);
+    if (!msgIn.value) msgIn.value = t;
+  }
+  msgIn.focus();
+}
+function takePending(ev) {
+  if (ev.kind !== 'text' || !ev.ch || ev.ch !== cfg.channel_id) return;
+  const txt = pendingText(ev.segs);
+  for (const r of list.querySelectorAll('.msg.pending')) if (r.dataset.pending === txt) { r.remove(); return; }
 }
 $('#send').onclick = send;
 let tabState = null;
@@ -371,7 +391,7 @@ connect(ev => {
         : 'Waiting for your stream to start. Chat will appear here automatically.' }] });
       pollViewers();
       break;
-    case 'msg': add(ev); break;
+    case 'msg': takePending(ev); add(ev); break;
     case 'replace': {
       const old = list.querySelector('[data-id="' + CSS.escape(ev.id) + '"]');
       if (old) old.replaceWith(render(ev));
