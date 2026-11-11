@@ -402,8 +402,10 @@ class ObsLink:
                 self.tasks.put(("restore_rec", None))
                 self.tasks.put(("sync", None))
                 self._reader(ws)
-            except (OSError, ConnectionError, ValueError) as e:
+            except Exception as e:  # any failure: drop the connection and reconnect, never stop trying
                 err = str(e)
+                if not isinstance(e, (OSError, ConnectionError, ValueError)):
+                    self.log("obs link error", repr(e))
                 if isinstance(e, ConnectionRefusedError) or "10061" in err:
                     err = "OBS isn't running."
                 self._set_conn(False, err)
@@ -677,6 +679,14 @@ class ObsLink:
         os.replace(tmp, self.LAST_LIVE_FILE)
 
     def _thumbs_loop(self):
+        while True:  # keep thumbnails alive whatever happens
+            try:
+                self._thumbs_inner()
+            except Exception as e:
+                self.log("thumbnail error", repr(e))
+                time.sleep(1)
+
+    def _thumbs_inner(self):
         """Scene thumbnails, only while a Scenes+ panel is open.
         Scenes that render black when not shown (videos that only play while their scene is current, capture
         cards that switch off when hidden) show the last good picture from when they were current or previewed."""
@@ -997,6 +1007,89 @@ class ObsLink:
         with self.lock:
             if name in self.state["inputs"]:
                 self.state["inputs"][name]["ducked"] = on
+
+    # ----- mic settings (device + the usual voice filters, in plain language)
+    MIC_FILTERS = [  # kind, friendly name, default settings; listed in the order they should run
+        ("gain_filter", "Gain", {"db": 0.0}),
+        ("noise_gate_filter", "Noise Gate", {"open_threshold": -42.0, "close_threshold": -48.0,
+                                             "attack_time": 25, "hold_time": 200, "release_time": 150}),
+        ("noise_suppress_filter", "Noise Suppression", {"method": "rnnoise"}),
+        ("compressor_filter", "Compressor", {"ratio": 4.0, "threshold": -18.0, "attack_time": 6,
+                                             "release_time": 60, "output_gain": 0.0}),
+        ("limiter_filter", "Limiter", {"threshold": -3.0, "release_time": 60}),
+    ]
+
+    @staticmethod
+    def _base_kind(kind):
+        k = kind or ""
+        return k[:-3] if k.endswith(("_v2", "_v3")) else k
+
+    def mic_info(self, name):
+        if name not in self.state["inputs"]:
+            raise ObsError("That microphone wasn't found.")
+        settings = self.request("GetInputSettings", {"inputName": name}).get("inputSettings", {})
+        try:
+            devices = self.request("GetInputPropertiesListPropertyItems",
+                                   {"inputName": name, "propertyName": "device_id"}).get("propertyItems", [])
+        except ObsError:
+            devices = []
+        filters = self.request("GetSourceFilterList", {"sourceName": name}).get("filters", [])
+        return {"name": name, "device": settings.get("device_id", "default"),
+                "devices": [{"name": d.get("itemName"), "value": d.get("itemValue")} for d in devices
+                            if d.get("itemEnabled", True)],
+                "filters": [{"name": f["filterName"], "kind": self._base_kind(f.get("filterKind")),
+                             "enabled": f.get("filterEnabled", True), "settings": f.get("filterSettings", {}),
+                             "index": f.get("filterIndex")} for f in filters]}
+
+    def mic_set(self, b):
+        name, action = b.get("name"), b.get("action")
+        if name not in self.state["inputs"]:
+            raise ObsError("That microphone wasn't found.")
+        if action == "device":
+            self.request("SetInputSettings", {"inputName": name, "inputSettings": {"device_id": b.get("value")}})
+        elif action == "open":
+            req = {"filters": "OpenInputFiltersDialog", "properties": "OpenInputPropertiesDialog"}.get(b.get("dialog"))
+            if not req:
+                raise ObsError("Unknown window.")
+            self.request(req, {"inputName": name})
+        elif action == "filter":
+            kinds = {k: (n, d) for k, n, d in self.MIC_FILTERS}
+            kind = b.get("kind")
+            if kind not in kinds:
+                raise ObsError("That filter isn't supported here.")
+            filters = self.request("GetSourceFilterList", {"sourceName": name}).get("filters", [])
+            mine = next((f for f in filters if self._base_kind(f.get("filterKind")) == kind), None)
+            want_on = b.get("enabled")
+            settings = b.get("settings") if isinstance(b.get("settings"), dict) else None
+            if mine is None:
+                if want_on is False:
+                    return
+                fname, defaults = kinds[kind]
+                existing = {f["filterName"] for f in filters}
+                n, base = 2, fname
+                while fname in existing:
+                    fname, n = f"{base} {n}", n + 1
+                self.request("CreateSourceFilter", {"sourceName": name, "filterName": fname,
+                                                    "filterKind": "noise_suppress_filter_v2" if kind == "noise_suppress_filter" else kind,
+                                                    "filterSettings": {**defaults, **(settings or {})}})
+                # put it in the right place in the chain (gain → gate → noise → compressor → limiter)
+                order = [k for k, _, _ in self.MIC_FILTERS]
+                filters = self.request("GetSourceFilterList", {"sourceName": name}).get("filters", [])
+                idx = 0
+                for f in filters:
+                    fk = self._base_kind(f.get("filterKind"))
+                    if f["filterName"] != fname and fk in order and order.index(fk) < order.index(kind):
+                        idx = max(idx, f["filterIndex"] + 1)
+                self.request("SetSourceFilterIndex", {"sourceName": name, "filterName": fname, "filterIndex": idx})
+            else:
+                if settings:
+                    self.request("SetSourceFilterSettings", {"sourceName": name, "filterName": mine["filterName"],
+                                                             "filterSettings": settings, "overlay": True})
+                if want_on is not None:
+                    self.request("SetSourceFilterEnabled", {"sourceName": name, "filterName": mine["filterName"],
+                                                            "filterEnabled": bool(want_on)})
+        else:
+            raise ObsError("Unknown mic action.")
 
     def set_mix(self, b):
         ms = self.mix_settings()

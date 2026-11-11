@@ -20,6 +20,7 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 
 ### Audio+
 - A simpler mixer: mute, volume with a live meter, and **🎧 Hear** (play it in your headphones).
+- **⚙ Mic** on microphones: pick the device and set boost, noise gate, background-noise removal, "even out my voice" and clipping protection in plain language, with a live level meter.
 - Instead of OBS's track grid, each source has an **On stream** switch and a **Recording** dropdown named after what's on each track (Mic, Game, Discord…).
 - **Mix check:**
   - **Keep my voice on top:** one switch keeps everything else on the stream at least 6–16 dB below your voice (you choose), all the time and for anything you add later. Nothing gets louder when you stop talking, and it remembers your usual voice level so it works through quiet stretches. Turning it off puts your volumes back.
@@ -96,7 +97,7 @@ See **[docs/xsplit-to-obs.md](docs/xsplit-to-obs.md)**: where XSplit's features 
 
 | Problem | Fix |
 |---|---|
-| Panels say **"Panel server not running"** | Check **Tools → Scripts** lists `obsplit-launcher.lua`. If not, run **OBSplit - Connect to OBS** with OBS closed. |
+| Panels show **"Reconnecting…"** | Nothing to do: the helper is restarting and the launcher brings it back within about 10 seconds. If it never clears, check **Tools → Scripts** lists `obsplit-launcher.lua`; if not, run **OBSplit - Connect to OBS** with OBS closed. |
 | Scenes+ / Audio+ say **"OBS offline"** | **Tools → WebSocket Server Settings**: make sure the server is enabled. |
 | Panels are missing after creating a new scene collection | Close OBS and run **OBSplit - Connect to OBS**. |
 | Game not in the ＋ Game list | Start the game first, then click ⟳. Games under a Steam/Epic/GOG/Xbox library or running fullscreen are listed first; everything else is under "Other windows". |

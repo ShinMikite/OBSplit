@@ -5,6 +5,8 @@
 - **Audio+ → Mix check:** "Keep my voice on top" (steady, never rises when you stop talking), live voice-vs-everything-else reading, 15-second "hear what viewers hear" check recording, optional "Dip game while I talk", per-game volume memory.
 - **Audio+:** clearer controls: "On stream" switch and a "Recording: Mic / Game / Discord / off" dropdown replace the Rec 2/3/4 chips and the legend line.
 - **Scenes+:** clicking a scene says "switch", not "go live"; the current scene is tagged CURRENT.
+- **Audio+ → ⚙ Mic:** pick the microphone and adjust boost, noise gate, noise removal, "even out my voice" and clipping protection in plain language, with a live level meter.
+- **Reliability:** panels keep their content and show "Reconnecting…" during a hiccup instead of an error; the launcher restarts the helper automatically if it stops or freezes; background tasks can no longer stop silently.
 
 ## 0.1.0 (2026-11-11)
 

@@ -71,11 +71,13 @@ function ruleBtn(scene, name) {
 }
 
 function draw() {
-  const g = $('#grid'); g.innerHTML = '';
-  if (!st.connected) {
+  const g = $('#grid');
+  if (!st.connected && !(st.scenes && st.scenes.length)) {
     g.innerHTML = '<div class="notice" style="grid-column:1/-1"></div>';
     $('.notice').textContent = st.error || 'Connecting to OBS…'; $('#legend').textContent = ''; return;
   }
+  g.classList.toggle('stale', !st.connected);   // keep showing the last scenes while reconnecting
+  g.innerHTML = '';
   for (const s of st.scenes) {
     const c = el('div', 'card'); c.dataset.scene = s;
     if (s === st.program) c.classList.add('program');
@@ -99,7 +101,8 @@ function draw() {
 function header() {
   const p = $('#pill');
   if (st.connected) { p.className = 'pill watching'; p.innerHTML = '<span class="dot"></span>OBS'; p.title = 'Connected to OBS'; }
-  else { p.className = 'pill'; p.innerHTML = '<span class="dot"></span>OBS offline'; }
+  else if (st.reconnecting) { p.className = 'pill reconnect'; p.innerHTML = '<span class="dot"></span>Reconnecting…'; p.title = 'The OBSplit helper is restarting. This fixes itself.'; }
+  else { p.className = 'pill'; p.innerHTML = '<span class="dot"></span>OBS offline'; p.title = st.error || ''; }
   $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click or ▶ = switch' : 'Click a scene to switch to it') : '';
   $('#go').hidden = !(st.connected && st.studio);
 }
@@ -235,7 +238,7 @@ $('#addRegion').onclick = async () => {
     if (ev.type === 'state') { Object.assign(thumbs, ev.thumbs || {}); st = ev; header(); draw(); }
     else if (ev.type === 'thumb') updateThumb(ev.scene, { img: ev.img, stale: ev.stale, dark: ev.dark });
   };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; header(); draw(); setTimeout(open, 2000); };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; header(); draw(); setTimeout(open, 1000); };
 })();
 </script>
 </body>

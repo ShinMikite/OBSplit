@@ -28,7 +28,7 @@ function connect(onEvent) {
   const open = () => {
     es = new EventSource('/events');
     es.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
-    es.onerror = () => { onEvent({ type: 'disconnected' }); es.close(); setTimeout(open, 2000); };
+    es.onerror = () => { onEvent({ type: 'disconnected' }); es.close(); setTimeout(open, 1000); };
   };
   open();
 }
@@ -55,7 +55,7 @@ function statusPill(pill, st) {
   const map = {
     live: ['live', 'LIVE'], upcoming: ['upcoming', 'Upcoming'], watching: ['watching', 'Watching'],
     offline: ['', 'Offline'], ended: ['', 'Stream ended'], nochannel: ['', 'Setup needed'],
-    error: ['', 'Reconnecting…'], starting: ['', 'Starting…'], disconnected: ['', 'Panel server not running'],
+    error: ['reconnect', 'Reconnecting…'], starting: ['', 'Starting…'], disconnected: ['reconnect', 'Reconnecting…'],
   };
   const [cls, label] = map[st.state] || ['', st.state || '…'];
   pill.className = 'pill ' + cls;

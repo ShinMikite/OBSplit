@@ -34,6 +34,8 @@ html, body { overflow-x: hidden; }
 .pill.live .dot { background: #ff4d55; animation: pulse 1.6s infinite; }
 .pill.upcoming .dot { background: var(--warn); }
 .pill.watching .dot { background: var(--accent); }
+.pill.reconnect { color: #f5c451; } .pill.reconnect .dot { background: var(--warn); animation: pulse 1s infinite; }
+.stale { opacity: .55; pointer-events: none; transition: opacity .2s; }
 @keyframes pulse { 50% { opacity: .35; } }
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-start;
   justify-content: center; padding: 24px 10px; z-index: 50; }

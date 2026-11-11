@@ -122,7 +122,12 @@ function row(name) {
   const mon = el('button', 'ib' + (monOn ? ' on' : ''), monOn ? '🎧 Hearing' : '🎧 Hear');
   mon.title = monOn ? 'You hear this in your headphones. Click to stop.' : "You don't hear this through OBS. Click to hear it in your headphones.";
   mon.onclick = () => send({ name, monitor: monOn ? MON.none : MON.both });
-  l1.append(mute, nm, db, mon);
+  l1.append(mute, nm, db);
+  if (i.kind === 'wasapi_input_capture') {
+    const g = el('button', 'ib', '⚙ Mic'); g.title = 'Microphone settings: device, noise removal, evening out, boost';
+    g.onclick = () => openMic(name); l1.appendChild(g);
+  }
+  l1.appendChild(mon);
 
   const f = el('div', 'fader');
   const meter = el('div', 'meter'); meter.appendChild(el('div', 'cover'));
@@ -145,8 +150,13 @@ function row(name) {
 }
 
 function drawMixer() {
-  const list = $('#list'); list.innerHTML = '';
-  if (!st.connected) { list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; return; }
+  const list = $('#list');
+  if (!st.connected && !Object.keys(st.inputs || {}).length) {
+    list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; return;
+  }
+  list.classList.toggle('stale', !st.connected);   // keep showing the last mixer while reconnecting
+  $('#mix').classList.toggle('stale', !st.connected);
+  list.innerHTML = '';
   const { loud, silent } = names();
   const keepOrMake = n => {
     const keep = dragging.has(n) && document.querySelector('.src[data-name="' + CSS.escape(n) + '"]');
@@ -165,7 +175,101 @@ function drawMixer() {
 }
 let showSilent = false;
 
+// ================= Mic settings
+let micOpen = null;
+const EVEN = { light: { ratio: 2.0, threshold: -16.0 }, medium: { ratio: 4.0, threshold: -18.0 }, strong: { ratio: 6.0, threshold: -24.0 } };
+
+async function openMic(name) {
+  let d; try { d = await api('/api/obs/mic?name=' + encodeURIComponent(name)); } catch (e) { return toast(e.message, true); }
+  const bg = el('div', 'modal-bg'), m = el('div', 'modal');
+  const close = () => { bg.remove(); micOpen = null; };
+  bg.onclick = e => { if (e.target === bg) close(); };
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+  bg.appendChild(m); document.body.appendChild(bg); micOpen = name;
+  const set = async body => {
+    try { d = await api('/api/obs/mic', { name, ...body }); render(); } catch (e) { toast(e.message, true); }
+  };
+  const sw = (on, fn) => { const s = el('span', 'switch' + (on ? ' on' : '')); s.onclick = fn; return s; };
+  const line = (label, help, ...ctrls) => {
+    const c = el('div'); c.style.cssText = 'padding:7px 0;border-top:1px solid var(--border)';
+    const h = el('div'); h.style.cssText = 'display:flex;align-items:center;gap:8px;font-weight:600;font-size:.9em';
+    h.append(...ctrls.filter(x => x && x.classList && x.classList.contains('switch')), el('span', null, label));
+    c.appendChild(h);
+    if (help) { const p = el('div', 'muted small', help); p.style.marginTop = '2px'; c.appendChild(p); }
+    for (const x of ctrls) if (x && !(x.classList && x.classList.contains('switch'))) { x.style.marginTop = '4px'; c.appendChild(x); }
+    return c;
+  };
+  const slider = (min, max, step, val, unit, fn) => {
+    const w = el('div'); w.style.cssText = 'display:flex;gap:8px;align-items:center';
+    const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = val; r.style.flex = '1';
+    const v = el('span', 'db', (+val).toFixed(0) + ' ' + unit);
+    let t; r.oninput = () => { v.textContent = (+r.value).toFixed(0) + ' ' + unit; clearTimeout(t); t = setTimeout(() => fn(+r.value), 250); };
+    w.append(r, v); return w;
+  };
+
+  function render() {
+    m.innerHTML = '';
+    m.appendChild(el('h3', null, '⚙ ' + name));
+    const f = k => d.filters.find(x => x.kind === k);
+    // device + level
+    const dev = el('select'); dev.style.width = '100%';
+    for (const x of d.devices) { const o = el('option', null, x.name); o.value = x.value; dev.appendChild(o); }
+    dev.value = d.device; dev.onchange = () => set({ action: 'device', value: dev.value });
+    const meter = el('div', 'meter'); meter.id = 'micMeter'; meter.style.cssText = 'position:relative;height:8px;margin-top:6px';
+    meter.appendChild(el('div', 'cover'));
+    m.appendChild(line('Microphone', 'Talk to check the level: aim for mostly green, touching yellow when you speak up.', dev, meter));
+    // boost
+    const gain = f('gain_filter'), gOn = !!(gain && gain.enabled);
+    m.appendChild(line('Boost', 'Make a quiet mic louder (or a hot mic quieter) before the other settings.',
+      sw(gOn, () => set({ action: 'filter', kind: 'gain_filter', enabled: !gOn })),
+      gOn ? slider(-10, 20, 1, (gain.settings.db ?? 0), 'dB', v => set({ action: 'filter', kind: 'gain_filter', settings: { db: v } })) : null));
+    // noise gate
+    const gate = f('noise_gate_filter'), gtOn = !!(gate && gate.enabled);
+    m.appendChild(line('Cut out quiet noise', 'Silences the mic completely below a level (keyboard, fans). Raise it if noise gets through; lower it if your words get cut.',
+      sw(gtOn, () => set({ action: 'filter', kind: 'noise_gate_filter', enabled: !gtOn })),
+      gtOn ? slider(-60, -25, 1, (gate.settings.open_threshold ?? -42), 'dB', v => set({ action: 'filter', kind: 'noise_gate_filter', settings: { open_threshold: v, close_threshold: v - 6 } })) : null));
+    // noise suppression
+    const ns = f('noise_suppress_filter'), nsOn = !!(ns && ns.enabled);
+    let method = null;
+    if (nsOn) {
+      method = el('select');
+      for (const [v, t] of [['rnnoise', 'Best quality (RNNoise)'], ['speex', 'Lighter on CPU (Speex)'], ['nvafx_denoiser', 'NVIDIA Broadcast (if installed)']]) { const o = el('option', null, t); o.value = v; method.appendChild(o); }
+      method.value = ns.settings.method || 'rnnoise';
+      method.onchange = () => set({ action: 'filter', kind: 'noise_suppress_filter', settings: { method: method.value } });
+    }
+    m.appendChild(line('Remove background noise', 'Cleans up hum, fans and room noise from your voice.',
+      sw(nsOn, () => set({ action: 'filter', kind: 'noise_suppress_filter', enabled: !nsOn })), method));
+    // compressor
+    const comp = f('compressor_filter'), cOn = !!(comp && comp.enabled);
+    const ev = el('select');
+    for (const [v, t] of [['off', 'Off'], ['light', 'Light'], ['medium', 'Medium (recommended)'], ['strong', 'Strong']]) { const o = el('option', null, t); o.value = v; ev.appendChild(o); }
+    const r = comp ? (comp.settings.ratio ?? 4) : 4;
+    ev.value = !cOn ? 'off' : r <= 2.5 ? 'light' : r <= 5 ? 'medium' : 'strong';
+    ev.onchange = () => ev.value === 'off' ? set({ action: 'filter', kind: 'compressor_filter', enabled: false })
+      : set({ action: 'filter', kind: 'compressor_filter', enabled: true, settings: EVEN[ev.value] });
+    m.appendChild(line('Even out my voice', 'Brings quiet words up and loud moments down, so viewers don\'t have to change their volume.', ev));
+    // limiter
+    const lim = f('limiter_filter'), lOn = !!(lim && lim.enabled);
+    m.appendChild(line('Stop clipping', 'A safety net: shouts and laughs never distort.',
+      sw(lOn, () => set({ action: 'filter', kind: 'limiter_filter', enabled: !lOn }))));
+    // other filters
+    const known = ['gain_filter', 'noise_gate_filter', 'noise_suppress_filter', 'compressor_filter', 'limiter_filter'];
+    const others = d.filters.filter(x => !known.includes(x.kind));
+    if (others.length) m.appendChild(line('Other filters', others.map(x => x.name + (x.enabled ? '' : ' (off)')).join(', ')));
+    const btns = el('div', 'row-flex'); btns.style.marginTop = '10px';
+    const b1 = el('button', null, 'All filters…'); b1.onclick = () => set({ action: 'open', dialog: 'filters' });
+    const b2 = el('button', null, 'Device properties…'); b2.onclick = () => set({ action: 'open', dialog: 'properties' });
+    const b3 = el('button', 'primary', 'Done'); b3.onclick = close;
+    btns.append(b1, b2, el('span', 'grow'), b3); m.appendChild(btns);
+  }
+  render();
+}
+
 function meters(m) {
+  if (micOpen) {
+    const cov = document.querySelector('#micMeter .cover'), d = m[micOpen];
+    if (cov) cov.style.width = (100 - Math.max(0, Math.min(1, ((d ?? -100) + 60) / 60)) * 100) + '%';
+  }
   for (const r of document.querySelectorAll('.src')) {
     const d = m[r.dataset.name]; const cov = r.querySelector('.cover'); if (!cov) continue;
     const lvl = d == null ? 0 : Math.max(0, Math.min(1, (d + 60) / 60));
@@ -275,8 +379,9 @@ $('#vScene').onclick = () => { view = 'scene'; $('#vScene').classList.add('on');
 $('#vAll').onclick = () => { view = 'all'; $('#vAll').classList.add('on'); $('#vScene').classList.remove('on'); drawMixer(); };
 
 function pill() {
-  const p = $('#pill'); p.className = 'pill' + (st.connected ? ' watching' : '');
-  p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : 'OBS offline');
+  const p = $('#pill'); p.className = 'pill' + (st.connected ? ' watching' : st.reconnecting ? ' reconnect' : '');
+  p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : st.reconnecting ? 'Reconnecting…' : 'OBS offline');
+  p.title = st.connected ? 'Connected to OBS' : st.reconnecting ? 'The OBSplit helper is restarting. This fixes itself.' : (st.error || '');
 }
 
 (function open() {
@@ -288,7 +393,7 @@ function pill() {
     else if (ev.type === 'mix') { mix = ev; if (tab === 'mix') drawMix(); }
     else if (ev.type === 'note') toast(ev.text);
   };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; pill(); drawMixer(); setTimeout(open, 2000); };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; pill(); drawMixer(); setTimeout(open, 1000); };
 })();
 </script>
 </body>

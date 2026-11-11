@@ -1049,6 +1049,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json(APP.obs.discord_status())
                     if p == "/api/obs/regions":
                         return self.send_json({"regions": APP.obs.region_sources(), "scene": APP.obs.target_scene()})
+                    if p == "/api/obs/mic":
+                        return self.send_json(APP.obs.mic_info((qs.get("name") or [""])[0]))
                 except obslink.ObsError as e:
                     return self.send_json({"error": str(e)}, 400)
             if p == "/api/ping":
@@ -1322,6 +1324,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"ok": True, **APP.obs.add_region(b)})
                     elif p == "/api/obs/mix":
                         return self.send_json({"ok": True, "auto": APP.obs.set_mix(b)})
+                    elif p == "/api/obs/mic":
+                        APP.obs.mic_set(b)
+                        return self.send_json({"ok": True, **APP.obs.mic_info(b.get("name"))})
                     elif p == "/api/obs/duck":
                         APP.obs.set_duck(b.get("name"), bool(b.get("on")))
                         APP.obs.push_state()
@@ -1441,6 +1446,10 @@ class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
+    def handle_error(self, request, client_address):
+        # one bad request must never take anything else down; just note it
+        log("request error", traceback.format_exc()[-400:])
+
 
 def already_running():
     try:
@@ -1450,6 +1459,38 @@ def already_running():
         return False
 
 
+HEARTBEAT_FILE = os.path.join(DATA_DIR, "heartbeat")
+PID_FILE = os.path.join(DATA_DIR, "server.pid")
+
+
+def heartbeat():
+    """Every 2 s: check our own web server really answers, then stamp the heartbeat file.
+    The OBS launcher script restarts the helper if this stamp goes stale."""
+    while True:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/ping", timeout=3) as r:
+                r.read()
+            with open(HEARTBEAT_FILE, "w") as f:
+                f.write(str(int(time.time())))
+        except Exception as e:
+            log("heartbeat: not answering", repr(e))
+        time.sleep(2)
+
+
+def take_over_port():
+    """Port busy but nothing healthy answers: a previous copy is frozen. Stop it and take over."""
+    try:
+        pid = int(open(PID_FILE).read().strip())
+    except (OSError, ValueError):
+        return False
+    if pid == os.getpid():
+        return False
+    log("previous helper (pid", pid, ") isn't answering; stopping it")
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=0x08000000)
+    time.sleep(1.5)
+    return True
+
+
 def main():
     global APP
     try:
@@ -1457,19 +1498,27 @@ def main():
             os.replace(LOG_FILE, LOG_FILE + ".old")
     except OSError:
         pass
-    try:
-        httpd = Server((HOST, PORT), Handler)
-    except OSError:
-        if already_running():
-            log("already running; nothing to do")
-            open(READY_FILE, "w").close()
-            return
-        raise
+    httpd = None
+    for attempt in range(2):
+        try:
+            httpd = Server((HOST, PORT), Handler)
+            break
+        except OSError:
+            if already_running():
+                log("already running; nothing to do")
+                open(READY_FILE, "w").close()
+                return
+            if attempt == 0 and take_over_port():
+                continue
+            raise
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
     APP = App()
     APP.chat.start()
     APP.stats.start()
     if "--with-obs" in sys.argv:
         threading.Thread(target=obs_watchdog, daemon=True, name="watchdog").start()
+    threading.Thread(target=heartbeat, daemon=True, name="heartbeat").start()
     open(READY_FILE, "w").close()
     log(f"listening on http://{HOST}:{PORT}")
     httpd.serve_forever()
