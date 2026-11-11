@@ -1409,6 +1409,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         r = APP.quality.undo()
                     elif a == "test_upload":
                         r = APP.quality.test_upload()
+                    elif a == "set_upload":
+                        r = APP.quality.set_upload(b.get("mbps"))
                     elif a == "auto":
                         APP.quality.set_auto(b.get("on"))
                         r = {}

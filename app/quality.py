@@ -110,6 +110,139 @@ class QualityError(Exception):
     pass
 
 
+# --------------------------------------------------------------------------- M-Lab upload test (ndt7)
+# Protocol: https://github.com/m-lab/ndt-server/blob/main/spec/ndt7-protocol.md
+# One WebSocket to a nearby M-Lab server; the client sends binary messages for up to 10 seconds and the server
+# replies with JSON measurements of what it actually received (more accurate than counting what we sent).
+MLAB_LOCATE = "https://locate.measurementlab.net/v2/nearest/ndt/ndt7"
+NDT7_PROTOCOL = "net.measurementlab.ndt.v7"
+
+
+def _ws_frame(opcode, payload):
+    """A masked client frame. Masking 1 MB in pure Python is slow, so each payload size is masked once and the frame
+    is reused: the mask only protects plain-HTTP proxies, and this connection is TLS end to end."""
+    n = len(payload)
+    head = bytes([0x80 | opcode])
+    if n < 126:
+        head += bytes([0x80 | n])
+    elif n < 65536:
+        head += bytes([0x80 | 126]) + n.to_bytes(2, "big")
+    else:
+        head += bytes([0x80 | 127]) + n.to_bytes(8, "big")
+    mask = os.urandom(4)
+    m = int.from_bytes((mask * (n // 4 + 1))[:n], "big")
+    masked = (int.from_bytes(payload, "big") ^ m).to_bytes(n, "big") if n else b""
+    return head + mask + masked
+
+
+def _ws_read_frame(sock):
+    def need(k):
+        b = b""
+        while len(b) < k:
+            c = sock.recv(k - len(b))
+            if not c:
+                raise ConnectionError("server closed the connection")
+            b += c
+        return b
+    h = need(2)
+    op, n = h[0] & 0x0F, h[1] & 0x7F
+    if n == 126:
+        n = int.from_bytes(need(2), "big")
+    elif n == 127:
+        n = int.from_bytes(need(8), "big")
+    if h[1] & 0x80:
+        need(4)   # servers don't mask; skip if one does
+    return op, need(n) if n else b""
+
+
+def mlab_upload(seconds=10.0, version="0.1"):
+    """Returns (kbps, "server city") measured by the M-Lab server."""
+    import socket
+    import ssl
+    import urllib.parse
+    q = urllib.parse.urlencode({"client_name": "obsplit", "client_version": version})
+    req = urllib.request.Request(MLAB_LOCATE + "?" + q, headers={"User-Agent": "OBSplit/" + version})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        loc = json.load(r)
+    results = loc.get("results") or []
+    if not results:
+        raise QualityError("M-Lab didn't offer a test server right now. Try again in a minute.")
+    target = results[0]
+    url = (target.get("urls") or {}).get("wss:///ndt/v7/upload")
+    if not url:
+        raise QualityError("M-Lab's answer had no upload test address.")
+    city = ", ".join(x for x in ((target.get("location") or {}).get("city"),
+                                 (target.get("location") or {}).get("country")) if x)
+    u = urllib.parse.urlsplit(url)
+    path = u.path + "?" + u.query + "&" + q
+    raw = socket.create_connection((u.hostname, u.port or 443), timeout=10)
+    sock = ssl.create_default_context().wrap_socket(raw, server_hostname=u.hostname)
+    try:
+        import base64
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((f"GET {path} HTTP/1.1\r\nHost: {u.hostname}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
+                      f"Sec-WebSocket-Protocol: {NDT7_PROTOCOL}\r\nUser-Agent: OBSplit/{version}\r\n\r\n").encode())
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            c = sock.recv(4096)
+            if not c:
+                raise ConnectionError("no answer from the test server")
+            resp += c
+        if b" 101 " not in resp.split(b"\r\n", 1)[0]:
+            raise ConnectionError("test server refused: " + resp.split(b"\r\n", 1)[0].decode(errors="replace"))
+        import select
+        size, sent, frames = 1 << 13, 0, {}
+        best = None            # latest server-side measurement: (bytes received, microseconds)
+        start = time.time()
+
+        def drain():
+            nonlocal best
+            while sock.pending() or select.select([sock], [], [], 0)[0]:
+                op, data = _ws_read_frame(sock)
+                if op == 1:   # text: a measurement
+                    try:
+                        m = json.loads(data)
+                    except ValueError:
+                        continue
+                    t = m.get("TCPInfo") or {}
+                    a = m.get("AppInfo") or {}
+                    if t.get("BytesReceived") and t.get("ElapsedTime"):
+                        best = (t["BytesReceived"], t["ElapsedTime"])
+                    elif a.get("NumBytes") and a.get("ElapsedTime"):
+                        best = (a["NumBytes"], a["ElapsedTime"])
+                elif op == 8:
+                    raise StopIteration
+
+        try:
+            while time.time() - start < seconds:
+                f = frames.get(size) or frames.setdefault(size, _ws_frame(2, os.urandom(size)))
+                sock.sendall(f)
+                sent += size
+                if size < (1 << 20) and sent >= 16 * size:   # grow messages as the connection proves fast
+                    size <<= 1
+                drain()
+            sock.sendall(_ws_frame(8, (1000).to_bytes(2, "big")))
+            end = time.time() + 3
+            sock.settimeout(1)
+            while time.time() < end:
+                drain()
+                time.sleep(0.05)
+        except (StopIteration, socket.timeout, ssl.SSLError, ConnectionError):
+            pass
+        elapsed = time.time() - start
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+    if best:
+        return int(best[0] * 8 / (best[1] / 1e6) / 1000), city
+    if sent:
+        return int(sent * 8 / max(0.1, elapsed) / 1000), city
+    raise QualityError("The upload test didn't send anything.")
+
+
 class Quality:
     def __init__(self, obs, log, youtube_health):
         self.obs, self.log, self.youtube_health = obs, log, youtube_health
@@ -266,6 +399,7 @@ class Quality:
                 "current_label": self._describe(cur) if cur else "",
                 "plans": {k: self.plan(k, cur) for k in PRESETS} if cur else {},
                 "preset": d.get("preset"), "upload_kbps": d.get("upload_kbps"), "upload_at": d.get("upload_at"),
+                "upload_source": d.get("upload_source") or ("test" if d.get("upload_kbps") else None),
                 "auto": d.get("auto", True), "has_backup": bool(d.get("backup")),
                 "restart_needed": restart, "report": d.get("report"),
                 "testing": self.testing}
@@ -384,57 +518,50 @@ class Quality:
         self.log("stream quality: put back the settings from", b.get("at"))
         return {"restart_needed": restart}
 
+    def set_upload(self, mbps):
+        """Upload speed the user typed in from a speed test they trust (e.g. their provider's or speedtest.net)."""
+        try:
+            mbps = float(mbps)
+        except (TypeError, ValueError):
+            raise QualityError("Enter your upload speed in Mbps, for example 35.")
+        if not 0.5 <= mbps <= 10000:
+            raise QualityError("That upload speed doesn't look right. Enter it in Mbps, for example 35.")
+        with self.lock:
+            self.d.update(upload_kbps=int(mbps * 1000), upload_at=time.strftime("%Y-%m-%d %H:%M"), upload_source="you")
+            _save(self.d)
+        return {"upload_kbps": int(mbps * 1000)}
+
     def set_auto(self, on):
         with self.lock:
             self.d["auto"] = bool(on)
             _save(self.d)
 
     # ------------------------------------------------------------------ upload test
-    def test_upload(self, seconds=8, streams=4, chunk=4 * 1024 * 1024):
-        """Uploads random data to Cloudflare's public speed test for a few seconds and measures how fast it went."""
+    def test_upload(self):
+        """Measures upload speed with M-Lab's ndt7 test (the one Google Search's speed test uses), against a nearby
+        M-Lab server. A speed the user typed in is kept unless the test finds more."""
         if self.busy() == "streaming":
             raise QualityError("Stop streaming first: the test would slow your stream down.")
         if self.testing:
             raise QualityError("A test is already running.")
         self.testing = True
-        data = os.urandom(chunk)
-        done, lock = [0], threading.Lock()
-        deadline = time.time() + seconds
-        errors = []
-
-        def worker():
-            while time.time() < deadline:
-                try:
-                    req = urllib.request.Request("https://speed.cloudflare.com/__up", data=data, method="POST",
-                                                 headers={"Content-Type": "application/octet-stream",
-                                                          "User-Agent": "OBSplit"})
-                    with urllib.request.urlopen(req, timeout=seconds + 10) as r:
-                        r.read()
-                    with lock:
-                        done[0] += len(data)
-                except Exception as e:   # one failed request shouldn't stop the test
-                    errors.append(str(e))
-                    time.sleep(0.5)
-
         try:
-            start = time.time()
-            ts = [threading.Thread(target=worker, daemon=True) for _ in range(streams)]
-            for t in ts:
-                t.start()
-            for t in ts:
-                t.join(seconds + 15)
-            elapsed = max(0.1, time.time() - start)
+            kbps, where = mlab_upload()
+        except QualityError:
+            raise
+        except Exception as e:
+            raise QualityError("The upload test couldn't finish (" + str(e)[:100] + ").")
         finally:
             self.testing = False
-        if not done[0]:
-            raise QualityError("The upload test couldn't reach the test server" +
-                               (f" ({errors[0][:80]})" if errors else "") + ".")
-        kbps = int(done[0] * 8 / elapsed / 1000)
         with self.lock:
-            self.d.update(upload_kbps=kbps, upload_at=time.strftime("%Y-%m-%d %H:%M"))
+            typed = self.d.get("upload_source") == "you" and (self.d.get("upload_kbps") or 0) > kbps
+            if not typed:
+                self.d.update(upload_kbps=kbps, upload_at=time.strftime("%Y-%m-%d %H:%M"), upload_source="test")
+            self.d["upload_tested_kbps"] = kbps
+            self.d["upload_server"] = where
             _save(self.d)
-        self.log("upload test", kbps, "kbps")
-        return {"upload_kbps": kbps}
+        self.log("upload test", kbps, "kbps via M-Lab", where)
+        return {"upload_kbps": kbps, "kept_typed": typed, "server": where}
 
     # ------------------------------------------------------------------ watching streams
     def start(self):

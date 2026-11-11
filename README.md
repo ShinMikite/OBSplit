@@ -51,7 +51,7 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 
 ### OBSplit Setup
 - The one-time YouTube connection, step by step (see below), and your channel for reading chat before you connect.
-- **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. Switching the video format takes effect the next time OBS starts.
+- **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed with M-Lab's open speed test (or type in your speed from any test) so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. Switching the video format takes effect the next time OBS starts.
 - **Lock my panel layout:** arrange your panels, click Lock, and close OBS once. From then on OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a crash, a reset or a connected account's separate layout. **Update my saved layout** after rearranging on purpose.
 
 ### Auto Audio Setup (OBS script)
@@ -99,7 +99,7 @@ Each user brings their own key, so everyone gets their own free daily allowance 
 
 ## Privacy
 
-- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, and to Cloudflare's public speed test only when you click **Test my upload** (it uploads random data for a few seconds; nothing about you is sent).
+- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, and to [M-Lab](https://www.measurementlab.net/)'s open speed test only when you click **Test my upload** (10 seconds of random data to a nearby M-Lab server). M-Lab publishes every test result, including your IP address, as public research data; if you'd rather not, type your upload speed in instead.
 - Chat is read from YouTube's public live-chat page, the same way the pop-out chat works.
 - Your YouTube stream key goes from YouTube straight into OBS's own stream settings. OBSplit never shows it or saves it anywhere else.
 - Your sign-in, settings and chat history are stored in `%LOCALAPPDATA%\OBSplit\app\data`. The uninstaller asks whether to delete them.

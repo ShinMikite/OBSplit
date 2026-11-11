@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Stream quality** (OBSplit Setup): one choice (Recommended / Sharper 1440p / Light 720p) sets the best video format your graphics card supports (AV1, HEVC or H.264), a bitrate from YouTube's table that fits your upload, 2-second keyframes, constant bitrate, Limited color range and OBS's automatic bitrate drop. Optional upload test. After each stream it checks dropped frames and YouTube's stream health and adjusts the bitrate for next time. Only changes settings while you're not live; your old settings are saved first and **Undo** puts them back exactly.
+- **Stream quality** (first section of OBSplit Setup): one choice (Recommended / Sharper 1440p / Light 720p) sets the best video format your graphics card supports (AV1, HEVC or H.264), a bitrate from YouTube's table that fits your upload, 2-second keyframes, constant bitrate, Limited color range and OBS's automatic bitrate drop. Optional upload test with M-Lab's open speed test (the one Google's speed test uses), or type in your upload from any speed test. After each stream it checks dropped frames and YouTube's stream health and adjusts the bitrate for next time. Only changes settings while you're not live; your old settings are saved first and **Undo** puts them back exactly.
 
 - **Audio+ → Mix check:** "Keep my voice on top" (steady, never rises when you stop talking), live voice-vs-everything-else reading, 15-second "hear what viewers hear" check recording, optional "Dip game while I talk", per-game volume memory.
 - **Audio+:** clearer controls: "On stream" switch and a "Recording: Mic / Game / Discord / off" dropdown replace the Rec 2/3/4 chips and the legend line.
