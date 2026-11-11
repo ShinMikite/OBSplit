@@ -1309,12 +1309,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                               if c["snippet"].get("assignable")]
         return {"broadcasts": out, "categories": APP.categories, "current": APP.hub.status.get("video")}
 
-    def video(self, vid):
-        r = APP.google.request("GET", "/videos", {"part": "snippet,status", "id": vid}, cost=1)
-        items = r.get("items") or []
-        if not items:
-            raise ApiError(404, "Couldn't find that stream on your channel.")
-        sn, st = items[0]["snippet"], items[0]["status"]
+    @staticmethod
+    def _get_video(vid):
+        # A stream created a moment ago can take a few seconds to show up in YouTube's video list: look again
+        # before saying it doesn't exist.
+        for wait in (0, 1.5, 2.5, 4):
+            time.sleep(wait)
+            r = APP.google.request("GET", "/videos", {"part": "snippet,status", "id": vid}, cost=1)
+            items = r.get("items") or []
+            if items:
+                return items[0]
+        raise ApiError(404, "Couldn't find that stream on your channel.")
+
+    def video(self, vid, item=None):
+        if item is None:
+            item = self._get_video(vid)
+        sn, st = item.get("snippet") or {}, item.get("status") or {}
         thumbs = sn.get("thumbnails") or {}
         best = None
         for k in ("maxres", "standard", "high", "medium", "default"):
@@ -1498,8 +1508,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     YT_RTMPS = "rtmps://a.rtmps.youtube.com:443/live2"
 
     def stream_keys(self):
-        r = APP.google.request("GET", "/liveStreams", {"part": "snippet,cdn,contentDetails,status", "mine": "true",
-                                                       "maxResults": 50}, cost=1)
+        # YouTube sometimes answers this list with a 500 "backendError" for some channels and parts. Ask again with
+        # fewer details before giving up; the list only needs the id, title and ingestion info.
+        r = None
+        for parts, n in (("snippet,cdn,contentDetails,status", 50), ("snippet,cdn,contentDetails", 10),
+                         ("snippet,cdn", 5), ("snippet,contentDetails", 50), ("snippet", 50), ("snippet", 10)):
+            try:
+                r = APP.google.request("GET", "/liveStreams", {"part": parts, "mine": "true", "maxResults": n}, cost=1)
+                if parts != "snippet,cdn,contentDetails,status":
+                    log("stream keys listed with fewer details:", parts, n)
+                break
+            except ApiError as e:
+                if e.status < 500:
+                    raise
+                last = e
+        if r is None:
+            raise last
         obs_key = None
         try:
             obs_key = (APP.obs.request("GetStreamServiceSettings").get("streamServiceSettings") or {}).get("key")
@@ -1581,11 +1605,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def update_video(self, b):
         vid = b.get("id")
-        r = APP.google.request("GET", "/videos", {"part": "snippet,status", "id": vid}, cost=1)
-        items = r.get("items") or []
-        if not items:
-            raise ApiError(404, "Couldn't find that stream on your channel.")
-        sn, st = items[0]["snippet"], items[0]["status"]
+        item = self._get_video(vid)
+        sn, st = item["snippet"], item["status"]
         title = (b.get("title") or "").strip()
         if not title:
             raise ApiError(400, "The title can't be empty.")
@@ -1603,10 +1624,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                        "selfDeclaredMadeForKids", "containsSyntheticMedia") if k in st}
             keep["privacyStatus"] = b["privacy"]
             body["status"], parts = keep, parts + ["status"]
-        APP.google.request("PUT", "/videos", {"part": ",".join(parts)}, body, cost=50)
+        saved = APP.google.request("PUT", "/videos", {"part": ",".join(parts)}, body, cost=50) or {}
         if vid == APP.hub.status.get("video"):
             APP.hub.set_status(title=title)
-        return self.video(vid)
+        # Show what YouTube confirmed in its reply. Reading the video again right away can still return the old
+        # values for a few seconds (e.g. the previous privacy), which made a successful change look like it failed.
+        item = {"snippet": {**sn, **(saved.get("snippet") or new_sn)},
+                "status": {**st, **(saved.get("status") or body.get("status") or {})}}
+        return self.video(vid, item)
 
 
 class Server(http.server.ThreadingHTTPServer):

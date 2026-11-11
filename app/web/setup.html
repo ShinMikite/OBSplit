@@ -34,10 +34,10 @@
   <h2><span id="c2" class="chk">2</span> Connect your YouTube channel</h2>
   <div id="s2"></div>
 
-  <h2><span class="chk">3</span> Chat source</h2>
+  <h2><span id="c3" class="chk">3</span> Chat source</h2>
   <div class="box">
     <div id="srcNow" class="small" style="margin-bottom:6px"></div>
-    <div class="row-flex" style="margin-bottom:6px"><input id="chan" class="grow" placeholder="Your channel: @handle or channel link (only needed before step 2)"><button id="chanGo">Save</button></div>
+    <div class="row-flex" id="chanRow" style="margin-bottom:6px"><input id="chan" class="grow" placeholder="Your channel: @handle or channel link (only needed before step 2)"><button id="chanGo">Save</button></div>
     <div class="row-flex"><input id="watch" class="grow" placeholder="Paste a YouTube video/stream link to read another chat"><button id="watchGo">Watch</button><button id="watchMine">Back to my channel</button></div>
   </div>
 
@@ -102,9 +102,10 @@ function draw() {
         <li>${L('Create a Google Cloud project', 'https://console.cloud.google.com/projectcreate')}. Name it <b>OBSplit</b> → <b>Create</b>. Make sure it's the selected project at the top of the page.</li>
         <li>${L('Enable the YouTube Data API v3', 'https://console.cloud.google.com/apis/library/youtube.googleapis.com')} → <b>Enable</b>.</li>
         <li>${L('Set up the sign-in screen', 'https://console.cloud.google.com/auth/overview')} → <b>Get started</b>. App name <b>OBSplit</b>, your email → <b>Next</b> → Audience <b>External</b> → <b>Next</b> → your email → <b>Next</b> → tick agree → <b>Create</b>.</li>
-        <li>${L('Open Audience', 'https://console.cloud.google.com/auth/audience')} → <b>Publish app</b> → <b>Confirm</b>. (Otherwise Google signs you out every 7 days.)</li>
+        <li>${L('Open Audience', 'https://console.cloud.google.com/auth/audience')} → <b>Publish app</b> → <b>Confirm</b>. (Otherwise Google signs you out every 7 days.)
+          If <b>Publish app</b> is greyed out: ${L('open Branding', 'https://console.cloud.google.com/auth/branding')}, put your YouTube channel link (for example <code>https://www.youtube.com/@yourname</code>) as both the <b>home page</b> and the <b>privacy policy link</b>, add <code>youtube.com</code> under <b>Authorized domains</b> → <b>Save</b>, then try Publish again.</li>
         <li>${L('Open Clients', 'https://console.cloud.google.com/auth/clients')} → <b>Create client</b> → Application type <b>Desktop app</b> → <b>Create</b> → <b>Download JSON</b>.</li>
-        <li>Drop that downloaded file below.</li>
+        <li>Drop that downloaded file below. A brand-new key can take a few minutes to start working; if YouTube shows an error right away, wait a few minutes and try again.</li>
       </ol>
       <div id="drop">Drop the downloaded <b>client_secret_….json</b> here, or click to choose it</div>
       <input id="cf" type="file" accept=".json,application/json" hidden></div>`;
@@ -128,10 +129,13 @@ function draw() {
     $('#conn').onclick = () => api('/api/connect', {}).then(() => toast('Finish signing in in your web browser')).catch(e => toast(e.message, true));
   }
   const s = st.status || {};
-  const src = c.watch_override ? 'Reading chat from another stream: ' + c.watch_override
-    : c.channel_id ? 'Reading chat from your channel (' + (c.channel_title || c.channel_id) + '). It switches automatically when you start streaming.'
-    : 'Connect your channel above so chat knows where to look.';
+  const src = c.watch_override ? 'Reading chat from another stream: ' + c.watch_override + '. Click "Back to my channel" to return.'
+    : c.channel_id ? 'Nothing to do here. Chat follows your channel (' + (c.channel_title || c.channel_id) + ') and switches to your stream automatically when you go live. Optional: paste a link below to read a different stream\'s chat.'
+    : 'Connect your channel above (or enter it here) so chat knows where to look.';
   $('#srcNow').textContent = src;
+  const srcOk = !!(c.channel_id || c.watch_override);
+  $('#c3').className = 'chk' + (srcOk ? ' done' : ''); $('#c3').textContent = srcOk ? '✓' : '3';
+  $('#chanRow').style.display = con ? 'none' : '';
   $('#watch').value = '';
   $('#quota').textContent = 'YouTube API units used today: ' + fmtNum(st.quota) + ' of 10,000 (resets midnight Pacific). Reading chat uses none.';
   statusPill($('#pill'), s);

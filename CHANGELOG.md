@@ -8,6 +8,9 @@
 - **Sources+** (new panel): the current scene's sources with show/hide, lock, move, properties and filters; **📌 always on top / always at bottom** layers that hold in every scene; ＋ Game, ＋ Discord, ＋ Screen region and ＋ More (common source types or an existing source), to one scene or all scenes. The add buttons moved here from Scenes+.
 - **＋ Discord** works before Discord is open.
 - **Backup launcher:** a second, independent OBS script starts the helper before the panels load if the main launcher can't be loaded (for example, its file is briefly locked while OBS starts), so the panels never open to "Couldn't load that page".
+- **Stream keys:** if YouTube has a server hiccup while listing your stream keys, OBSplit asks again with fewer details instead of showing an error.
+- **Fix: privacy and title changes looked like they failed.** YT Stream Info now shows what YouTube confirmed when saving, instead of re-reading right away and briefly getting the old values. **+ New** no longer says "Couldn't find that stream" when YouTube takes a few seconds to list a stream it just created.
+- **OBSplit Setup:** Chat source shows as done once it knows your channel; the setup steps explain what to do when Google's **Publish app** button is greyed out.
 - **YT Stream Info → + New:** create a stream (now or scheduled) with all its settings, linked to your stream key, so Start Streaming in OBS goes straight live; **Use in OBS** puts your YouTube stream key into OBS without copy-pasting.
 - **Scenes+:** drag scenes to reorder (OBS's own list follows after OBS closes), + Scene, rename and delete.
 - **Look:** simple single-colour line icons like OBS's own instead of emoji, a plain status dot instead of a badge, quieter tags.

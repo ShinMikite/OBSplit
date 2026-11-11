@@ -89,7 +89,7 @@ A backup of every OBS file it touches is saved to `%APPDATA%\obs-studio\obsplit-
 Open the **OBSplit Setup** panel. It links straight to each page:
 
 1. Create a Google Cloud project and enable **YouTube Data API v3**.
-2. Set up the sign-in screen (External) and **Publish** it. Otherwise Google signs you out every 7 days.
+2. Set up the sign-in screen (External) and **Publish** it. Otherwise Google signs you out every 7 days. If **Publish app** is greyed out, add your YouTube channel link as the home page and privacy policy link on the **Branding** page, with `youtube.com` as an authorized domain.
 3. Create an OAuth client of type **Desktop app**, download the JSON and drop it on the setup panel.
 4. Click **Connect YouTube account**. Google will say the app isn't verified; that's expected for your own app (**Advanced → Go to OBSplit**).
 5. In **YT Stream Info**, click **+ New** and use **Use in OBS** in the stream key box. From then on, set up each stream there and press **Start Streaming** in OBS.
