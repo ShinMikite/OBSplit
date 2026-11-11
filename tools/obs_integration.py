@@ -173,10 +173,15 @@ def set_docks(add):
         docks = json.loads(cur) if cur else []
     except ValueError:
         docks = []
-    docks = [d for d in docks if not str(d.get("url", "")).startswith(URL)]
     if add:
+        # Keep panels that already exist exactly as they are: OBS remembers each panel's place in the layout by
+        # its id, so replacing them would scramble the user's layout. Only add the ones that are missing.
+        have = {str(d.get("url", "")).rstrip("/") for d in docks}
         for title, url in DOCKS:
-            docks.append({"title": title, "url": url, "uuid": secrets.token_hex(16)})
+            if url.rstrip("/") not in have:
+                docks.append({"title": title, "url": url, "uuid": secrets.token_hex(16)})
+    else:
+        docks = [d for d in docks if not str(d.get("url", "")).startswith(URL)]
     lines = ini_set(lines, "BasicWindow", "ExtraBrowserDocks", json.dumps(docks))
     write_text(path, nl.join(lines), bom)
 
@@ -257,8 +262,8 @@ def install():
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     json.dump(state, open(STATE, "w", encoding="utf-8"), indent=2)
     say("OBSplit", "OBSplit is connected to OBS.\n\n"
-                   "Start OBS: the new panels are in the Docks menu (YT Chat, YT Stream Info, YT Stats, "
-                   "Scenes+, Audio+, OBSplit Setup). Drag them where you like.\n\n"
+                   "Start OBS: the panels are in the Docks menu (YT Chat, YT Stream Info, YT Stats, "
+                   "Scenes+, Sources+, Audio+, OBSplit Setup). Panels you already had stay where they were.\n\n"
                    f"A backup of your previous OBS settings is in:\n{where}")
     return 0
 
