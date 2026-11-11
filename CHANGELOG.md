@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Audio+ → Mix check:** "Keep my voice on top" (steady, never rises when you stop talking), live voice-vs-everything-else reading, 15-second "hear what viewers hear" check recording, optional "Dip game while I talk", per-game volume memory.
+- **Audio+:** clearer controls: "On stream" switch and a "Recording: Mic / Game / Discord / off" dropdown replace the Rec 2/3/4 chips and the legend line.
+- **Scenes+:** clicking a scene says "switch", not "go live"; the current scene is tagged CURRENT.
+
 ## 0.1.0 (2026-11-11)
 
 First release.

@@ -6,16 +6,20 @@
 <title>Audio+</title>
 <link rel="stylesheet" href="/static/common.css">
 <style>
-  #list { flex: 1; overflow-y: auto; padding: 6px 8px; display: grid; gap: 6px;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-content: start; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+  .seg button { border: 0; border-radius: 0; padding: 2px 9px; font-size: .82em; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .pane { flex: 1; overflow-y: auto; }
+  /* ---- mixer */
+  #list { padding: 6px 8px; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-content: start; }
   .src { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 0; }
-  .src.muted { opacity: .62; }
+  .src.muted, .src.silent { opacity: .6; }
   .l1 { display: flex; align-items: center; gap: 6px; }
   .nm { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .nm small { color: var(--muted); font-weight: 400; margin-left: 4px; }
-  .db { font-size: .78em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
-  .ib { padding: 1px 6px; font-size: .95em; line-height: 1.3; }
-  .ib.on { background: var(--accent); border-color: var(--accent); }
+  .db { font-size: .78em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
+  .ib { padding: 1px 6px; font-size: .85em; line-height: 1.4; white-space: nowrap; }
+  .ib.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .mute.on { background: #7d2226; border-color: #a02e33; }
   .fader { position: relative; height: 22px; margin: 5px 0 4px; }
   .meter { position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: 3px; overflow: hidden;
@@ -25,32 +29,46 @@
   .fader input::-webkit-slider-runnable-track { height: 22px; background: transparent; }
   .fader input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 20px; margin-top: 1px; border-radius: 3px;
     background: #e6e6ea; border: 1px solid #555; cursor: pointer; }
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-  .chip { font-size: .74em; padding: 1px 7px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--border);
-    cursor: pointer; user-select: none; white-space: nowrap; }
-  .chip.on { background: #1d3f8a; border-color: var(--accent); color: #fff; }
-  .chip.stream.on { background: #7a1f24; border-color: #ff4d55; }
+  .l3 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: .8em; }
+  .tog { padding: 1px 8px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+  .tog.on { background: #1d3f8a; border-color: var(--accent); color: #fff; }
+  .l3 select { font-size: 1em; padding: 1px 4px; max-width: 170px; }
   .silentbar { grid-column: 1 / -1; font-size: .78em; color: var(--muted); cursor: pointer; padding: 4px 2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .silentbar:hover { color: var(--text); }
-  .src.silent { opacity: .55; }
-  #legend { padding: 4px 10px 6px; font-size: .74em; color: var(--muted); flex: none; border-bottom: 1px solid var(--border); }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; padding: 2px 8px; font-size: .8em; }
-  .seg button.on { background: var(--accent); color: #fff; }
+  /* ---- mix check */
+  #mix { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .card h4 { margin: 0 0 4px; font-size: .95em; display: flex; align-items: center; gap: 8px; }
+  .card p { margin: 2px 0 0; font-size: .8em; color: var(--muted); }
+  .switch { position: relative; width: 38px; height: 20px; border-radius: 99px; background: #3a3c48; cursor: pointer; flex: none; transition: background .15s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .switch.on { background: var(--ok); } .switch.on::after { left: 20px; }
+  .bal { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; font-size: .82em; margin-top: 6px; }
+  .bar { height: 10px; border-radius: 5px; background: #2a2c36; overflow: hidden; }
+  .bar > div { height: 100%; transition: width .2s; }
+  .verdict { font-weight: 700; margin-top: 6px; }
+  .v-good { color: var(--ok); } .v-low, .v-quiet { color: var(--warn); } .v-bad { color: var(--danger); } .v-wait { color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; font-size: .82em; padding: 3px 0; border-top: 1px solid rgba(255,255,255,.05); }
+  .row .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .mini { width: 70px; height: 6px; border-radius: 3px; background: #2a2c36; overflow: hidden; flex: none; }
+  .row .mini > div { height: 100%; background: #6aa0ff; }
+  .tag { font-size: .72em; padding: 0 5px; border-radius: 4px; background: #3f2a78; }
+  audio { width: 100%; margin-top: 6px; }
 </style>
 </head>
 <body>
 <div class="bar">
   <span id="pill" class="pill"><span class="dot"></span>…</span>
+  <span class="seg"><button id="tMixer" class="on">Mixer</button><button id="tMix">Mix check</button></span>
   <span class="grow"></span>
-  <span class="seg"><button id="vScene" class="on" title="Only sources in the current scene, plus Mic and Desktop Audio">This scene</button><button id="vAll" title="Every source with audio">All</button></span>
+  <span class="seg" id="viewSeg"><button id="vScene" class="on" title="Only sources in the current scene, plus Mic and Desktop Audio">This scene</button><button id="vAll" title="Every source with audio">All</button></span>
 </div>
-<div id="legend"></div>
-<div id="list"></div>
+<div class="pane" id="mixerPane"><div id="list"></div></div>
+<div class="pane" id="mixPane" hidden><div id="mix"></div></div>
 <script src="/static/common.js"></script>
 <script>
-let st = { inputs: {}, specials: [], members: [], rec_tracks: [], track_names: {} }, view = 'scene';
+let st = { inputs: {}, specials: [], members: [], rec_tracks: [], track_names: {} }, view = 'scene', tab = 'mixer', mix = null;
 const dragging = new Set();
 const posToDb = p => p <= 0 ? -100 : Math.max(-100, 60 * Math.log10(p));
 const dbToPos = db => db <= -100 ? 0 : Math.min(1, Math.pow(10, db / 60));
@@ -58,19 +76,38 @@ const KIND = { wasapi_input_capture: 'mic', wasapi_output_capture: 'desktop', wa
   ffmpeg_source: 'media', vlc_source: 'playlist', browser_source: 'browser', dshow_input: 'capture card',
   game_capture: 'game', window_capture: 'window' };
 const MON = { none: 'OBS_MONITORING_TYPE_NONE', both: 'OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT', only: 'OBS_MONITORING_TYPE_MONITOR_ONLY' };
-
-const send = (body) => api('/api/obs/input', body).catch(e => toast(e.message, true));
-let volTimer = {};
+const send = body => api('/api/obs/input', body).catch(e => toast(e.message, true));
+const volTimer = {};
 function sendVol(name, db) { clearTimeout(volTimer[name]); volTimer[name] = setTimeout(() => send({ name, db }), 60); }
+const streamTrack = () => String(st.stream_track || 1);
+const recTracks = () => st.rec_tracks.filter(t => String(t) !== streamTrack());
 
-let showSilent = false;
+// ================= Mixer
 function names() {
   const all = Object.keys(st.inputs);
   const inView = view === 'all' ? all : all.filter(n => st.specials.includes(n) || st.members.includes(n));
   const sort = arr => arr.sort((a, b) => (st.specials.includes(b) - st.specials.includes(a)) || a.localeCompare(b));
-  const loud = sort(inView.filter(n => st.inputs[n].audible !== false));
-  const silent = sort(inView.filter(n => st.inputs[n].audible === false));
-  return { loud, silent };
+  return { loud: sort(inView.filter(n => st.inputs[n].audible !== false)), silent: sort(inView.filter(n => st.inputs[n].audible === false)) };
+}
+
+function recSelect(name, i) {
+  const s = el('select'); s.title = 'Which recording track this source is saved on';
+  const on = recTracks().filter(t => (i.tracks || {})[String(t)]);
+  const add = (v, label) => { const o = el('option', null, label); o.value = v; s.appendChild(o); };
+  add('off', 'Recording: off');
+  for (const t of recTracks()) add(String(t), 'Recording: ' + (st.track_names[t] || 'track ' + t) + ' track');
+  if (recTracks().length > 1) add('all', 'Recording: all tracks');
+  let cur = 'off';
+  if (on.length === 1) cur = String(on[0]);
+  else if (on.length && on.length === recTracks().length) cur = 'all';
+  else if (on.length) { add('custom', 'Recording: ' + on.map(t => st.track_names[t] || t).join(' + ')); cur = 'custom'; s.lastChild.disabled = true; }
+  s.value = cur;
+  s.onchange = () => {
+    const tracks = {};
+    for (const t of recTracks()) tracks[String(t)] = s.value === 'all' || s.value === String(t);
+    send({ name, tracks });
+  };
+  return s;
 }
 
 function row(name) {
@@ -78,13 +115,12 @@ function row(name) {
   const r = el('div', 'src' + (i.muted ? ' muted' : '')); r.dataset.name = name;
   const l1 = el('div', 'l1');
   const mute = el('button', 'ib mute' + (i.muted ? ' on' : ''), i.muted ? '🔇' : '🔊');
-  mute.title = i.muted ? 'Unmute' : 'Mute'; mute.onclick = () => send({ name, muted: !i.muted });
-  const nm = el('span', 'nm', name); nm.appendChild(el('small', null, KIND[i.kind] || ''));
-  nm.title = name;
+  mute.title = i.muted ? 'Muted. Click to unmute' : 'Click to mute'; mute.onclick = () => send({ name, muted: !i.muted });
+  const nm = el('span', 'nm', name); nm.appendChild(el('small', null, KIND[i.kind] || '')); nm.title = name;
   const db = el('span', 'db', i.db <= -100 ? '-inf dB' : i.db.toFixed(1) + ' dB');
   const monOn = i.monitor !== MON.none;
-  const mon = el('button', 'ib' + (monOn ? ' on' : ''), i.monitor === MON.only ? '🎧 only' : '🎧');
-  mon.title = monOn ? 'You hear this in your headphones (click to stop)' : "You don't hear this (click to hear it in your headphones)";
+  const mon = el('button', 'ib' + (monOn ? ' on' : ''), monOn ? '🎧 Hearing' : '🎧 Hear');
+  mon.title = monOn ? 'You hear this in your headphones. Click to stop.' : "You don't hear this through OBS. Click to hear it in your headphones.";
   mon.onclick = () => send({ name, monitor: monOn ? MON.none : MON.both });
   l1.append(mute, nm, db, mon);
 
@@ -93,47 +129,41 @@ function row(name) {
   const sl = el('input'); sl.type = 'range'; sl.min = 0; sl.max = 1000; sl.value = Math.round(dbToPos(i.db) * 1000);
   sl.title = 'Volume (double-click = 0 dB)';
   sl.oninput = () => { dragging.add(name); const d = posToDb(sl.value / 1000); db.textContent = d <= -100 ? '-inf dB' : d.toFixed(1) + ' dB'; sendVol(name, d); };
-  sl.onchange = () => { setTimeout(() => dragging.delete(name), 400); };
+  sl.onchange = () => setTimeout(() => dragging.delete(name), 400);
   sl.ondblclick = () => { sl.value = 1000; send({ name, db: 0 }); };
   f.append(meter, sl);
 
-  const chips = el('div', 'chips');
-  const chip = (label, track, cls, tip) => {
-    const on = !!(i.tracks || {})[String(track)];
-    const c = el('span', 'chip ' + (cls || '') + (on ? ' on' : ''), label); c.title = tip + (on ? ' (on)' : ' (off)');
-    c.onclick = () => send({ name, track, on: !on }); chips.appendChild(c);
-  };
-  chip('Stream', 1, 'stream', 'Viewers hear this on the stream');
-  for (const t of st.rec_tracks) if (t !== 1) chip('Rec ' + t, t, '', 'In recording track ' + t + ' (' + (st.track_names[t] || '') + ')');
-  r.append(l1, f, chips);
+  const l3 = el('div', 'l3');
+  const onStream = !!(i.tracks || {})[streamTrack()];
+  const t = el('span', 'tog' + (onStream ? ' on' : ''), onStream ? '✓ On stream' : 'Not on stream');
+  t.title = onStream ? 'Viewers hear this. Click to keep it off the stream.' : "Viewers don't hear this. Click to put it on the stream.";
+  t.onclick = () => send({ name, track: Number(streamTrack()), on: !onStream });
+  l3.appendChild(t);
+  if (recTracks().length) l3.appendChild(recSelect(name, i));
+  r.append(l1, f, l3);
   return r;
 }
 
-function draw() {
-  const p = $('#pill');
-  p.className = 'pill' + (st.connected ? ' watching' : ''); p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : 'OBS offline');
+function drawMixer() {
   const list = $('#list'); list.innerHTML = '';
-  if (!st.connected) { list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; $('#legend').textContent = ''; return; }
-  $('#legend').textContent = 'Stream = viewers hear it · ' + st.rec_tracks.filter(t => t !== 1).map(t => 'Rec ' + t + ' = ' + (st.track_names[t] || 'track ' + t)).join(' · ') + ' · 🎧 = you hear it';
+  if (!st.connected) { list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; return; }
   const { loud, silent } = names();
   const keepOrMake = n => {
     const keep = dragging.has(n) && document.querySelector('.src[data-name="' + CSS.escape(n) + '"]');
     const r = keep || row(n); if (silent.includes(n)) r.classList.add('silent'); return r;
   };
   for (const n of loud) list.appendChild(keepOrMake(n));
-  if (!loud.length) list.appendChild(Object.assign(el('div', 'notice', 'No sound sources in this scene.'), {}));
+  if (!loud.length) list.appendChild(el('div', 'notice', 'No sound sources in this scene.'));
   if (silent.length) {
     const t = el('div', 'silentbar');
     t.textContent = (showSilent ? '▾ ' : '▸ ') + silent.length + ' without sound: ' + silent.join(', ');
-    t.title = 'Videos with no soundtrack, browser sources not set to "Control audio via OBS", and captures with "Capture audio" off. Click to ' + (showSilent ? 'hide' : 'show') + ' them.';
-    t.onclick = () => { showSilent = !showSilent; draw(); };
+    t.title = 'Videos with no or silent soundtrack, browser sources not set to "Control audio via OBS", and captures with "Capture audio" off.';
+    t.onclick = () => { showSilent = !showSilent; drawMixer(); };
     list.appendChild(t);
     if (showSilent) for (const n of silent) list.appendChild(keepOrMake(n));
   }
 }
-
-$('#vScene').onclick = () => { view = 'scene'; $('#vScene').classList.add('on'); $('#vAll').classList.remove('on'); draw(); };
-$('#vAll').onclick = () => { view = 'all'; $('#vAll').classList.add('on'); $('#vScene').classList.remove('on'); draw(); };
+let showSilent = false;
 
 function meters(m) {
   for (const r of document.querySelectorAll('.src')) {
@@ -143,14 +173,122 @@ function meters(m) {
   }
 }
 
+// ================= Mix check
+const pct = d => d == null ? 0 : Math.max(0, Math.min(100, (d + 60) / 60 * 100));
+const dbs = d => d == null ? '—' : d.toFixed(0) + ' dB';
+let mixBuilt = false, checkKey = '';
+
+function buildMix() {
+  const m = $('#mix'); m.innerHTML = `
+  <div class="card">
+    <h4><span class="switch" id="sAuto"></span> Keep my voice on top</h4>
+    <p>Everything else on the stream stays at least <b id="gapV">10</b> dB below your voice, all the time, including anything you add later.
+       Nothing gets louder when you stop talking. Turning this off puts your volumes back.</p>
+    <input type="range" id="gap" min="6" max="16" step="1" style="width:100%;margin-top:6px" title="How far below your voice everything else stays">
+    <div style="display:flex;justify-content:space-between;font-size:.75em;color:var(--muted)"><span>← Game louder</span><span>Voice clearer →</span></div>
+  </div>
+  <div class="card">
+    <h4>Right now</h4>
+    <div class="bal">
+      <span>Your voice</span><div class="bar"><div id="bVoice" style="background:#3fb950"></div></div><span id="nVoice">—</span>
+      <span>Everything else</span><div class="bar"><div id="bBg" style="background:#6aa0ff"></div></div><span id="nBg">—</span>
+    </div>
+    <div class="verdict" id="verdict">…</div>
+    <p id="gapNow"></p>
+  </div>
+  <div class="card">
+    <h4>Hear what viewers hear</h4>
+    <p>Records 15 seconds of exactly what goes out on the stream (only the stream audio), then plays it back here. Talk over your game while it records.</p>
+    <div class="row-flex" style="margin-top:6px"><button id="rec" class="primary">● Record a 15-second check</button><span id="recState" class="muted small"></span></div>
+    <div id="player"></div>
+  </div>
+  <div class="card">
+    <h4><span class="switch" id="sDuck"></span> Dip game while I talk <span class="muted small">(optional)</span></h4>
+    <p>Separate from the above: game and music also dip a little while you're talking, then return when you stop.</p>
+  </div>
+  <div class="card">
+    <h4>What's on the stream</h4>
+    <div id="srcs"></div>
+  </div>`;
+  $('#sAuto').onclick = () => api('/api/obs/mix', { auto: !(mix && mix.settings.auto) }).then(r => toast(r.auto ? 'Your voice will stay on top' : 'Auto off: volumes put back')).catch(e => toast(e.message, true));
+  $('#sDuck').onclick = () => api('/api/obs/mix', { duck: !(mix && mix.settings.duck) }).catch(e => toast(e.message, true));
+  let gt; $('#gap').oninput = () => { $('#gapV').textContent = $('#gap').value; clearTimeout(gt); gt = setTimeout(() => api('/api/obs/mix', { gap: +$('#gap').value }), 300); };
+  $('#rec').onclick = () => api('/api/obs/mixcheck', { seconds: 15 }).then(() => toast('Recording 15 seconds. Talk over your game now.')).catch(e => toast(e.message, true));
+  mixBuilt = true;
+}
+
+function drawMix() {
+  if (!mixBuilt) buildMix();
+  if (!mix) return;
+  const s = mix.settings;
+  $('#sAuto').classList.toggle('on', s.auto); $('#sDuck').classList.toggle('on', s.duck);
+  if (document.activeElement !== $('#gap')) { $('#gap').value = s.gap; $('#gapV').textContent = s.gap; }
+  $('#bVoice').style.width = pct(mix.voice_db) + '%'; $('#nVoice').textContent = dbs(mix.voice_db);
+  $('#bBg').style.width = pct(mix.bg_db) + '%'; $('#nBg').textContent = dbs(mix.bg_db);
+  const v = $('#verdict'); v.textContent = mix.verdict; v.className = 'verdict v-' + mix.level;
+  $('#gapNow').textContent = mix.gap == null ? '' : 'Your voice is ' + mix.gap.toFixed(0) + ' dB above everything else' +
+    (mix.voice_live == null && mix.voice_db != null ? ' (using your usual voice level)' : '') + '.';
+  // check recording
+  const c = mix.check || {}; const rec = $('#rec'), rs = $('#recState');
+  rec.disabled = c.state === 'recording' || c.state === 'saving';
+  rs.textContent = c.state === 'recording' ? 'Recording… ' + Math.max(0, Math.ceil(c.until - Date.now() / 1000)) + ' s'
+    : c.state === 'saving' ? 'Saving…' : c.state === 'error' ? 'Check failed: ' + c.error : '';
+  const key = c.state === 'ready' ? c.file + c.t : '';
+  if (key !== checkKey) {
+    checkKey = key; const p = $('#player'); p.innerHTML = '';
+    if (c.state === 'ready') {
+      const a = el('audio'); a.controls = true; a.src = '/api/mixcheck/file?t=' + c.t;
+      const help = el('div', 'muted small', 'This is what viewers heard.');
+      a.onerror = () => { help.textContent = "This panel can't play the file. Use Open in player instead."; };
+      const b1 = el('button', null, 'Open in player'); b1.onclick = () => api('/api/obs/mixcheck/open', {}).catch(e => toast(e.message, true));
+      const b2 = el('button', null, 'Delete'); b2.onclick = () => api('/api/obs/mixcheck/delete', {}).then(() => toast('Check recording deleted'));
+      const r = el('div', 'row-flex'); r.style.marginTop = '4px'; r.append(b1, b2, help);
+      p.append(a, r); a.play().catch(() => {});
+    }
+  }
+  // sources
+  const box = $('#srcs'); box.innerHTML = '';
+  if (!mix.sources.length) box.appendChild(el('p', null, 'Nothing else is on the stream right now.'));
+  for (const x of mix.sources) {
+    const r = el('div', 'row');
+    const n = el('span', 'n', x.name); n.title = x.name;
+    const mini = el('div', 'mini'); const fill = el('div'); fill.style.width = pct(x.now_db) + '%'; mini.appendChild(fill);
+    const fd = el('span', 'db', x.fader == null ? '' : x.fader.toFixed(1) + ' dB');
+    r.append(n, mini, fd);
+    if (x.ducked) r.appendChild(el('span', 'tag', 'dips'));
+    const sk = el('span', 'tog' + (x.skip ? ' on' : ''), x.skip ? 'Left alone' : 'Auto adjusts');
+    sk.title = x.skip ? 'Auto never changes this one. Click to let Auto adjust it.' : 'Auto may turn this down. Click to leave it alone (e.g. alert sounds).';
+    sk.onclick = () => api('/api/obs/mix', { skip: { name: x.name, on: !x.skip } }).catch(e => toast(e.message, true));
+    r.appendChild(sk);
+    box.appendChild(r);
+  }
+}
+
+// ================= tabs + events
+function setTab(t) {
+  tab = t; $('#tMixer').classList.toggle('on', t === 'mixer'); $('#tMix').classList.toggle('on', t === 'mix');
+  $('#mixerPane').hidden = t !== 'mixer'; $('#mixPane').hidden = t !== 'mix'; $('#viewSeg').style.visibility = t === 'mixer' ? 'visible' : 'hidden';
+  if (t === 'mix') drawMix();
+}
+$('#tMixer').onclick = () => setTab('mixer'); $('#tMix').onclick = () => setTab('mix');
+$('#vScene').onclick = () => { view = 'scene'; $('#vScene').classList.add('on'); $('#vAll').classList.remove('on'); drawMixer(); };
+$('#vAll').onclick = () => { view = 'all'; $('#vAll').classList.add('on'); $('#vScene').classList.remove('on'); drawMixer(); };
+
+function pill() {
+  const p = $('#pill'); p.className = 'pill' + (st.connected ? ' watching' : '');
+  p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : 'OBS offline');
+}
+
 (function open() {
   const es = new EventSource('/obs-events?view=audio');
   es.onmessage = m => {
     const ev = JSON.parse(m.data);
-    if (ev.type === 'state') { st = ev; draw(); }
+    if (ev.type === 'state') { st = ev; pill(); drawMixer(); }
     else if (ev.type === 'meters') meters(ev.m);
+    else if (ev.type === 'mix') { mix = ev; if (tab === 'mix') drawMix(); }
+    else if (ev.type === 'note') toast(ev.text);
   };
-  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; draw(); setTimeout(open, 2000); };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, error: 'Panel server not running' }; pill(); drawMixer(); setTimeout(open, 2000); };
 })();
 </script>
 </body>

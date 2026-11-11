@@ -13,6 +13,12 @@ import struct
 import threading
 import time
 import uuid
+from collections import deque
+
+DUCK_FILTER = "OBSplit duck under voice"
+HERE = os.path.dirname(os.path.abspath(__file__))
+MIXCHECK_RESTORE = os.path.join(HERE, "data", "mixcheck_restore.json")
+MIXCHECK_FILES = os.path.join(HERE, "data", "mixcheck_files.json")
 
 OBS_WS_CONFIG = os.path.join(os.environ.get("APPDATA", ""), "obs-studio", "plugin_config", "obs-websocket",
                              "config.json")
@@ -286,6 +292,13 @@ class ObsLink:
         self.meters = {}
         self.heard = self._load_heard()   # name -> {"silent": bool}: learned by listening while a source plays
         self._listen = {}                 # name -> [seconds active, loudest dB]
+        self.levels = {}                  # name -> loudness right now (RMS, dB) after filters and volume
+        self.mix_hist = deque(maxlen=100)  # last 10 s: (time, voice power, {source: power}, speaking)
+        self._mix_pub = 0.0
+        self._auto_last = 0.0
+        self._auto_duck_check = 0.0
+        self._our_volume = {}             # name -> volume we set (so we can tell user changes apart)
+        self.mixcheck = {"state": "idle"}
         self.tasks = queue.Queue()
         self.thumb_due = {}
         threading.Thread(target=self._run, daemon=True, name="obs-link").start()
@@ -386,6 +399,7 @@ class ObsLink:
                 with self.lock:
                     self.state["rec_tracks"] = read_rec_tracks()
                 self._set_conn(True)
+                self.tasks.put(("restore_rec", None))
                 self.tasks.put(("sync", None))
                 self._reader(ws)
             except (OSError, ConnectionError, ValueError) as e:
@@ -443,14 +457,33 @@ class ObsLink:
 
     # ----- events (reader thread: never call request() here)
     def _event(self, t, e):
-        if t == "InputSettingsChanged" and e.get("inputName") in self.heard:
-            self.heard.pop(e["inputName"], None)  # new file/settings: listen again
+        if t == "InputSettingsChanged":
+            name = e.get("inputName")
+            self.heard.pop(name, None)  # new file/settings: listen again
+            inp = self.state["inputs"].get(name)
+            new_window = (e.get("inputSettings") or {}).get("window")
+            if inp is not None and new_window is not None:
+                from winapps import obs_window_exe
+                old_exe = obs_window_exe(inp.get("settings_window", "")).lower()
+                new_exe = obs_window_exe(new_window).lower()
+                inp["settings_window"] = new_window
+                remembered = (self.config.get("game_volumes") or {}).get(new_exe)
+                if new_exe and new_exe != old_exe and remembered is not None:
+                    self.tasks.put(("setvol", (name, remembered)))
         if t == "InputVolumeMeters":
             for i in e.get("inputs", []):
                 lv = i.get("inputLevelsMul") or []
                 peak = max((c[1] for c in lv if len(c) > 1), default=0.0)
+                mag = max((c[0] for c in lv if c), default=0.0)
                 self.meters[i["inputName"]] = round(mul_to_db(peak), 1)
+                self.levels[i["inputName"]] = mul_to_db(mag)
             return
+        if t == "InputVolumeChanged":
+            name, vol = e.get("inputName"), round(e.get("inputVolumeDb", 0), 1)
+            ours = self._our_volume.get(name)
+            if ours is None or abs(ours - vol) > 0.15:   # a change the user made, not Auto
+                self._our_volume.pop(name, None)
+                self.tasks.put(("user_volume", (name, vol)))
         upd = None
         with self.lock:
             st = self.state
@@ -506,6 +539,21 @@ class ObsLink:
                     self.refresh_members()
                     self.thumb_due[arg] = time.time() + 3  # one snapshot once any fade-in is over
                     self.push_state()
+                elif task == "setvol":
+                    name, vol = arg
+                    self.request("SetInputVolume", {"inputName": name, "inputVolumeDb": vol})
+                    self.publish({"type": "note", "text": f"{name}: volume set to {vol:+.1f} dB (remembered for this game)"})
+                elif task == "autovol":
+                    name, vol = arg
+                    self._our_volume[name] = vol
+                    self.request("SetInputVolume", {"inputName": name, "inputVolumeDb": vol})
+                elif task == "user_volume":
+                    self._user_volume_changed(*arg)
+                elif task == "autoduck":
+                    self._ensure_ducking()
+                elif task == "restore_rec":
+                    self._restore_rec_settings()
+                    self._delete_old_checks()
                 elif task == "studio":
                     r = self.request("GetCurrentPreviewScene") if self.state["studio"] else {}
                     with self.lock:
@@ -546,12 +594,25 @@ class ObsLink:
                     "monitor": self.request("GetInputAudioMonitorType", {"inputName": name}).get("monitorType"),
                     "tracks": tracks, "global": name in specials,
                 }
+                if inputs[name]["audible"]:
+                    filters = self.request("GetSourceFilterList", {"sourceName": name}).get("filters", [])
+                    inputs[name]["ducked"] = any(f.get("filterName") == DUCK_FILTER for f in filters)
             except ObsError:
                 continue
+        stream_track = 1
+        try:
+            mode = self.request("GetProfileParameter", {"parameterCategory": "Output",
+                                                        "parameterName": "Mode"}).get("parameterValue")
+            if mode == "Advanced":
+                stream_track = int(self.request("GetProfileParameter", {
+                    "parameterCategory": "AdvOut", "parameterName": "TrackIndex"}).get("parameterValue") or 1)
+        except (ObsError, ValueError):
+            pass
         with self.lock:
             self.state.update(scenes=scenes, program=sl.get("currentProgramSceneName"),
                               preview=sl.get("currentPreviewSceneName") if studio else None,
                               studio=studio, inputs=inputs, specials=[s for s in specials if s in inputs],
+                              stream_track=stream_track,
                               rec_tracks=read_rec_tracks())
             for s in list(self.thumbs):
                 if s not in scenes:
@@ -720,6 +781,10 @@ class ObsLink:
                     self._learn(now - last)
                 except Exception as e:
                     self.log("learn error", repr(e))
+                try:
+                    self._mix_tick(now)
+                except Exception as e:
+                    self.log("mix error", repr(e))
             last = now
 
     # ----- actions from panels
@@ -745,9 +810,342 @@ class ObsLink:
                                     "OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT"):
                 raise ObsError("bad monitor type")
             self.request("SetInputAudioMonitorType", {"inputName": name, "monitorType": b["monitor"]})
+        if isinstance(b.get("tracks"), dict):
+            self.request("SetInputAudioTracks", {"inputName": name, "inputAudioTracks":
+                                                 {str(int(k)): bool(v) for k, v in b["tracks"].items()}})
         if "track" in b:
             t = str(int(b["track"]))
             self.request("SetInputAudioTracks", {"inputName": name, "inputAudioTracks": {t: bool(b["on"])}})
+
+    # ----- Mix check: is your voice on top of everything else viewers hear?
+    def stream_track(self):
+        return int(self.state.get("stream_track") or 1)
+
+    def _voice_names(self):
+        t = str(self.stream_track())
+        return [n for n, i in self.state["inputs"].items()
+                if i.get("kind") == "wasapi_input_capture" and (i.get("tracks") or {}).get(t) and not i.get("muted")]
+
+    def _background_names(self, voice):
+        t = str(self.stream_track())
+        inputs = self.state["inputs"]
+        active = set(self.state.get("members") or []) | set(self.state.get("specials") or [])
+        return [n for n in active if n in inputs and n not in voice and inputs[n].get("audible")
+                and not inputs[n].get("muted") and (inputs[n].get("tracks") or {}).get(t)]
+
+    def mix_settings(self):
+        c = self.config.get("mix") or {}
+        return {"auto": bool(c.get("auto")), "duck": bool(c.get("duck")), "gap": float(c.get("gap", 10)),
+                "skip": list(c.get("skip") or []), "user_levels": dict(c.get("user_levels") or {}),
+                "voice_ref": c.get("voice_ref")}
+
+    def _save_mix(self, **kw):
+        c = dict(self.config.get("mix") or {})
+        c.update(kw)
+        self.config.update(mix=c)
+
+    def _mix_tick(self, now):
+        with self.lock:
+            voice = self._voice_names()
+            bg = self._background_names(voice)
+        v = [self.levels.get(n, -100.0) for n in voice]
+        vpow = sum(10 ** (d / 10) for d in v)
+        speaking = max(v, default=-100.0) > -42
+        per = {n: 10 ** (self.levels.get(n, -100.0) / 10) for n in bg}
+        self.mix_hist.append((now, vpow, per, speaking))
+        if now - self._mix_pub < 0.25:
+            return
+        self._mix_pub = now
+        m = self.mix_measure(now)
+        if m["voice_live"] is not None:
+            self._learn_voice(now, m["voice_live"])
+        if now - self._auto_duck_check > 5:
+            self._auto_duck_check = now
+            self.tasks.put(("autoduck", None))
+        self._auto_level(now, m)
+        with self.lock:
+            want = any(getattr(q, "view", "") == "audio" for q in self.subs)
+        if want:
+            self.publish({"type": "mix", **m})
+
+    def _learn_voice(self, now, live_db):
+        """Remember how loud your voice usually is, so Auto keeps working through quiet stretches."""
+        c = dict(self.config.get("mix") or {})
+        ref = c.get("voice_ref")
+        ref = live_db if ref is None else round(0.97 * ref + 0.03 * live_db, 2)
+        self._voice_ref_live = ref
+        if now - getattr(self, "_voice_ref_saved", 0) > 30:
+            self._voice_ref_saved = now
+            c["voice_ref"] = ref
+            self.config.update(mix=c)
+
+    def mix_measure(self, now=None, window=6.0):
+        """Your voice (average while you talk) vs. everything else on the stream track (average over the
+        last few seconds), from OBS's own meters, so after volumes and filters, exactly as viewers get it."""
+        now = now or time.time()
+        frames = [h for h in self.mix_hist if now - h[0] <= window]
+        talk = [h for h in frames if h[3]]
+        use = frames
+
+        def db(p):
+            return round(10 * math.log10(p), 1) if p > 1e-10 else None
+
+        voice_live = db(sum(h[1] for h in talk) / len(talk)) if len(talk) >= 5 else None
+        ref = getattr(self, "_voice_ref_live", None)
+        if ref is None:
+            ref = (self.config.get("mix") or {}).get("voice_ref")
+        voice_db = voice_live if voice_live is not None else ref
+        names = set()
+        for h in use:
+            names |= set(h[2])
+        per = {n: db(sum(h[2].get(n, 0.0) for h in use) / len(use)) for n in names} if use else {}
+        bg_db = db(sum(sum(h[2].values()) for h in use) / len(use)) if use else None
+        if bg_db is not None and bg_db < -65:
+            bg_db = None
+        gap = round(voice_db - bg_db, 1) if voice_db is not None and bg_db is not None else None
+        ms = self.mix_settings()
+        if voice_db is None:
+            verdict, level = "Talk normally for a few seconds so it can learn your voice level", "wait"
+        elif bg_db is None:
+            verdict, level = "Only your voice is on stream right now", "good"
+        elif gap < 4:
+            verdict, level = "Your voice is getting buried", "bad"
+        elif gap < ms["gap"] - 3:
+            verdict, level = "Your voice is a bit low", "low"
+        elif gap <= ms["gap"] + 8:
+            verdict, level = "Good balance", "good"
+        else:
+            verdict, level = "Game / music is very quiet", "quiet"
+        inputs = self.state["inputs"]
+        last = frames[-1] if frames else (now, 0.0, {}, False)
+        sources = []
+        for n in sorted((names | set(last[2])) & set(inputs)):  # skip sources removed since
+            i = inputs.get(n, {})
+            sources.append({"name": n, "avg_db": per.get(n), "now_db": db(last[2].get(n, 0.0)), "fader": i.get("db"),
+                            "ducked": bool(i.get("ducked")), "skip": n in ms["skip"], "kind": i.get("kind"),
+                            "user_level": ms["user_levels"].get(n)})
+        return {"voice_db": voice_db, "voice_live": voice_live, "bg_db": bg_db, "gap": gap,
+                "verdict": verdict, "level": level,
+                "speaking": bool(last[3]), "voice_now": db(last[1]), "bg_now": db(sum(last[2].values())),
+                "voice": self._voice_names(), "sources": sources,
+                "settings": {k: v for k, v in ms.items() if k != "user_levels"},
+                "check": dict(self.mixcheck), "stream_track": self.stream_track()}
+
+    def _auto_level(self, now, m):
+        """Auto ("always below my voice"): keeps everything else at least `gap` dB below your usual voice
+        level, steadily. It turns sources down from the level you set as far as needed, and only creeps
+        back toward your level if a source got quieter (e.g. a calmer part of a game). It does NOT follow
+        your talking: nothing rises when you stop talking. Uses your remembered voice level when you're quiet."""
+        ms = self.mix_settings()
+        if not ms["auto"] or m["voice_db"] is None or m["bg_db"] is None or now - self._auto_last < 3.0:
+            return
+        err = m["gap"] - ms["gap"]          # < 0: background too loud, > 0: room to come back up
+        if -1.0 < err < 4.0:               # comfortable band: leave it alone
+            return
+        step = max(-3.0, min(0.5, (err - 2.0) / 2))  # down quickly, back up very slowly
+        self._auto_last = now
+        for s in m["sources"]:
+            if s["skip"] or s["avg_db"] is None or s["avg_db"] < -60 or s["fader"] is None:
+                continue
+            ceiling = s["user_level"] if s["user_level"] is not None else s["fader"]
+            new = round(max(-40.0, min(ceiling, s["fader"] + step)), 1)
+            if abs(new - s["fader"]) >= 0.1:
+                self.tasks.put(("autovol", (s["name"], new)))
+
+    def _user_volume_changed(self, name, vol):
+        """The user moved a fader: that's their level now (Auto won't go above it). Remember it per game."""
+        ms = self.mix_settings()
+        if ms["auto"]:
+            ul = dict(ms["user_levels"])
+            ul[name] = vol
+            self._save_mix(user_levels=ul)
+        inp = self.state["inputs"].get(name) or {}
+        if inp.get("kind") in ("game_capture", "wasapi_process_output_capture"):
+            from winapps import obs_window_exe
+            exe = obs_window_exe(inp.get("settings_window", "")).lower()
+            if exe:
+                gv = dict(self.config.get("game_volumes") or {})
+                gv[exe] = vol
+                self.config.update(game_volumes=gv)
+
+    def _ensure_ducking(self):
+        ms = self.mix_settings()
+        if not ms["duck"]:
+            return
+        voice = self._voice_names()
+        if not voice:
+            return
+        for n in self._background_names(voice):
+            inp = self.state["inputs"].get(n) or {}
+            if n in ms["skip"] or inp.get("ducked"):
+                continue
+            self.set_duck(n, True, voice[0])
+
+    def set_duck(self, name, on, voice=None):
+        voice = voice or (self._voice_names() or [None])[0]
+        if on and not voice:
+            raise ObsError("No microphone is on the stream track, so there's nothing to duck under.")
+        try:
+            self.request("RemoveSourceFilter", {"sourceName": name, "filterName": DUCK_FILTER})
+        except ObsError:
+            pass
+        if on:
+            self.request("CreateSourceFilter", {
+                "sourceName": name, "filterName": DUCK_FILTER, "filterKind": "compressor_filter",
+                "filterSettings": {"ratio": 3.0, "threshold": -30.0, "attack_time": 10, "release_time": 400,
+                                   "output_gain": 0.0, "sidechain_source": voice}})
+        with self.lock:
+            if name in self.state["inputs"]:
+                self.state["inputs"][name]["ducked"] = on
+
+    def set_mix(self, b):
+        ms = self.mix_settings()
+        if "gap" in b:
+            self._save_mix(gap=max(4.0, min(20.0, float(b["gap"]))))
+        if "skip" in b:
+            skip = set(ms["skip"])
+            name = b["skip"].get("name")
+            if b["skip"].get("on"):
+                skip.add(name)
+                if (self.state["inputs"].get(name) or {}).get("ducked"):
+                    self.set_duck(name, False)
+                ul = ms["user_levels"].get(name)
+                if ul is not None:
+                    self.request("SetInputVolume", {"inputName": name, "inputVolumeDb": ul})
+            else:
+                skip.discard(name)
+            self._save_mix(skip=sorted(skip))
+        if "duck" in b:
+            on = bool(b["duck"])
+            self._save_mix(duck=on)
+            if on:
+                self._ensure_ducking()
+            else:
+                for n, i in list(self.state["inputs"].items()):
+                    if i.get("ducked"):
+                        self.set_duck(n, False)
+        if "auto" in b:
+            on = bool(b["auto"])
+            if on and not ms["auto"]:
+                # remember everyone's current level as "your setting"
+                ul = {n: i.get("db") for n, i in self.state["inputs"].items() if i.get("db") is not None}
+                self._save_mix(auto=True, user_levels=ul)
+            elif not on and ms["auto"]:
+                self._save_mix(auto=False)
+                for n, i in list(self.state["inputs"].items()):
+                    ul = ms["user_levels"].get(n)
+                    if ul is not None and i.get("db") is not None and abs(ul - i["db"]) > 0.1:
+                        self._our_volume[n] = ul
+                        self.request("SetInputVolume", {"inputName": n, "inputVolumeDb": ul})
+        self.push_state()
+        return self.mix_settings()["auto"]
+
+    # ----- 15-second check: record ONLY the stream audio track, play it back
+    def _param(self, cat, name):
+        return self.request("GetProfileParameter", {"parameterCategory": cat, "parameterName": name}).get(
+            "parameterValue")
+
+    def _set_param(self, cat, name, value):
+        self.request("SetProfileParameter", {"parameterCategory": cat, "parameterName": name,
+                                              "parameterValue": value})
+
+    def _restore_rec_settings(self):
+        try:
+            saved = json.load(open(MIXCHECK_RESTORE, encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        for cat, name, value in saved:
+            try:
+                self._set_param(cat, name, value)
+            except ObsError as e:
+                self.log("restore failed", cat, name, str(e))
+        os.remove(MIXCHECK_RESTORE)
+        self.log("restored recording settings after an interrupted mix check")
+
+    def _check_files(self):
+        try:
+            return json.load(open(MIXCHECK_FILES, encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+
+    def _delete_old_checks(self, keep=None):
+        left = []
+        for f in self._check_files():
+            if f == keep:
+                left.append(f)
+                continue
+            try:
+                os.remove(f)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                left.append(f)
+        with open(MIXCHECK_FILES, "w", encoding="utf-8") as fh:
+            json.dump(left, fh)
+
+    def mixcheck_start(self, seconds=15):
+        if self.mixcheck.get("state") in ("recording", "saving"):
+            raise ObsError("A check is already running.")
+        if self.request("GetRecordStatus").get("outputActive"):
+            raise ObsError("OBS is already recording. Stop that recording first.")
+        self.mixcheck = {"state": "recording", "until": time.time() + seconds, "seconds": seconds}
+        threading.Thread(target=self._mixcheck_run, args=(seconds,), daemon=True, name="mixcheck").start()
+
+    def _mixcheck_run(self, seconds):
+        changed = []
+        try:
+            mode = self._param("Output", "Mode") or "Simple"
+            cat = "AdvOut" if mode == "Advanced" else "SimpleOutput"
+            track = self.stream_track()
+            wanted = [(cat, "RecTracks", str(1 << (track - 1))),
+                      ("Output", "FilenameFormatting", "OBSplit mix check %CCYY-%MM-%DD %hh-%mm-%ss")]
+            fmt_key = "RecFormat2"
+            fmt = self._param(cat, fmt_key)
+            if fmt not in ("mp4", "hybrid_mp4", "mov", "fragmented_mp4"):
+                wanted.append((cat, fmt_key, "mp4"))   # something a browser can play back
+            if cat == "AdvOut" and self._param("AdvOut", "RecType") == "FFmpeg":
+                wanted.append(("AdvOut", "RecType", "Standard"))
+            saved = [(c, n, self._param(c, n)) for c, n, _ in wanted]
+            with open(MIXCHECK_RESTORE, "w", encoding="utf-8") as f:
+                json.dump(saved, f)                      # put back even if something crashes
+            for c, n, v in wanted:
+                self._set_param(c, n, v)
+                changed.append(n)
+            self.request("StartRecord")
+            end = time.time() + seconds
+            while time.time() < end:
+                time.sleep(0.25)
+            self.mixcheck = {"state": "saving"}
+            path = self.request("StopRecord", timeout=15).get("outputPath")
+            last, stable = -1, 0
+            for _ in range(40):                          # wait for OBS to finish writing the file
+                time.sleep(0.25)
+                size = os.path.getsize(path) if path and os.path.exists(path) else -1
+                stable = stable + 1 if size == last and size > 0 else 0
+                last = size
+                if stable >= 3:
+                    break
+            files = self._check_files() + [path]
+            with open(MIXCHECK_FILES, "w", encoding="utf-8") as fh:
+                json.dump(files, fh)
+            self._delete_old_checks(keep=path)
+            self.mixcheck = {"state": "ready", "file": path, "t": int(time.time()), "seconds": seconds,
+                             "track": track}
+        except Exception as e:
+            self.log("mix check failed", repr(e))
+            try:
+                if self.request("GetRecordStatus").get("outputActive"):
+                    self.request("StopRecord", timeout=15)
+            except Exception:
+                pass
+            self.mixcheck = {"state": "error", "error": str(e)}
+        finally:
+            if changed:
+                self._restore_rec_settings()
+
+    def mixcheck_delete(self):
+        self._delete_old_checks()
+        self.mixcheck = {"state": "idle"}
 
     # ----- one-click helpers: games, Discord, screen regions
     def _unique_name(self, base):

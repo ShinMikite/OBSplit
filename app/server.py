@@ -75,6 +75,8 @@ DEFAULT_CONFIG = {
     "timeout_default": 300,
     "scene_audio": {},
     "regions": {},
+    "mix": {"auto": False, "gap": 10, "skip": [], "user_levels": {}},
+    "game_volumes": {},
 }
 
 # --------------------------------------------------------------------------- utils
@@ -1033,7 +1035,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if p == "/events":
                 return self.sse()
             if p == "/obs-events":
-                return self.obs_sse((qs.get("view") or [""])[0] == "scenes")
+                return self.obs_sse((qs.get("view") or [""])[0])
+            if p == "/api/mixcheck/file":
+                return self.serve_mixcheck()
             if p.startswith("/api/obs/"):
                 import winapps
                 try:
@@ -1141,9 +1145,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
             APP.hub.unsubscribe(q)
             self.close_connection = True
 
-    def obs_sse(self, want_thumbs):
+    def serve_mixcheck(self):
+        """The 15-second check recording, with Range support so the panel's player can seek."""
+        path = (APP.obs.mixcheck or {}).get("file")
+        if not path or not os.path.isfile(path):
+            return self.send_text("not found", 404, "text/plain")
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        rng = self.headers.get("Range", "")
+        m = re.match(r"bytes=(\d*)-(\d*)", rng)
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else end
+            else:
+                start = max(0, size - int(m.group(2)))
+            end = min(end, size - 1)
+        ctype = "video/quicktime" if path.lower().endswith(".mov") else "video/mp4"
+        self.send_response(206 if m else 200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if m:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with open(path, "rb") as f:
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = f.read(min(262144, left))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
+
+    def obs_sse(self, view):
+        want_thumbs = view == "scenes"
         q = APP.obs.subscribe()
         q.thumbs = want_thumbs
+        q.view = view
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -1162,7 +1203,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     ev = q.get(timeout=15)
                     if ev.get("type") == "thumb" and not want_thumbs:
                         continue
-                    if ev.get("type") == "meters" and want_thumbs:
+                    if ev.get("type") in ("meters", "mix") and want_thumbs:
                         continue
                     self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
                 except queue.Empty:
@@ -1279,6 +1320,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"ok": True, **APP.obs.add_discord(b)})
                     elif p == "/api/obs/region":
                         return self.send_json({"ok": True, **APP.obs.add_region(b)})
+                    elif p == "/api/obs/mix":
+                        return self.send_json({"ok": True, "auto": APP.obs.set_mix(b)})
+                    elif p == "/api/obs/duck":
+                        APP.obs.set_duck(b.get("name"), bool(b.get("on")))
+                        APP.obs.push_state()
+                    elif p == "/api/obs/mixcheck":
+                        APP.obs.mixcheck_start(int(b.get("seconds") or 15))
+                    elif p == "/api/obs/mixcheck/open":
+                        f = (APP.obs.mixcheck or {}).get("file")
+                        if not f or not os.path.isfile(f):
+                            return self.send_json({"error": "No check recording to open."}, 400)
+                        os.startfile(f)
+                    elif p == "/api/obs/mixcheck/delete":
+                        APP.obs.mixcheck_delete()
                     else:
                         return self.send_text("not found", 404, "text/plain")
                 except obslink.ObsError as e:

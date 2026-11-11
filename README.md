@@ -19,8 +19,14 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 - Scenes that are black when they aren't showing, such as videos that only play while their scene is on screen, show the last picture from when they were.
 
 ### Audio+
-- A simpler mixer: mute, volume with a live meter, and **🎧 (you hear it)**.
-- Instead of OBS's track grid, each source has plain switches: **Stream**, **Rec 2**, **Rec 3**…, named after what's on each track (Mic, Game, Discord…).
+- A simpler mixer: mute, volume with a live meter, and **🎧 Hear** (play it in your headphones).
+- Instead of OBS's track grid, each source has an **On stream** switch and a **Recording** dropdown named after what's on each track (Mic, Game, Discord…).
+- **Mix check:**
+  - **Keep my voice on top:** one switch keeps everything else on the stream at least 6–16 dB below your voice (you choose), all the time and for anything you add later. Nothing gets louder when you stop talking, and it remembers your usual voice level so it works through quiet stretches. Turning it off puts your volumes back.
+  - **Right now:** a live reading of your voice vs. everything else, measured after volumes and filters, exactly as viewers get it.
+  - **Hear what viewers hear:** records 15 seconds of only the stream audio and plays it back in the panel. Your recording settings are put back and the test file is deleted afterwards.
+  - **Dip game while I talk** (optional): game and music dip while you speak, using OBS's own Compressor keyed to your mic.
+  - Volumes you set for a game are remembered per game.
 - **This scene** shows only what's in the current scene (plus mic and desktop audio). Sources that can't make sound are tucked away, including videos whose soundtrack turns out to be silent.
 
 ### YouTube
