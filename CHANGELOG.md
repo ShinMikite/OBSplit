@@ -7,6 +7,7 @@
 - **Scenes+:** clicking a scene says "switch", not "go live"; the current scene is tagged CURRENT.
 - **Sources+** (new panel): the current scene's sources with show/hide, lock, move, properties and filters; **📌 always on top / always at bottom** layers that hold in every scene; ＋ Game, ＋ Discord, ＋ Screen region and ＋ More (common source types or an existing source), to one scene or all scenes. The add buttons moved here from Scenes+.
 - **＋ Discord** works before Discord is open.
+- **YT Stream Info → + New:** create a stream (now or scheduled) with all its settings, linked to your stream key, so Start Streaming in OBS goes straight live; **Use in OBS** puts your YouTube stream key into OBS without copy-pasting.
 - **Scenes+:** drag scenes to reorder (OBS's own list follows after OBS closes), + Scene, rename and delete.
 - **Look:** simple single-colour line icons like OBS's own instead of emoji, a plain status dot instead of a badge, quieter tags.
 - **Fix: buttons stopped responding** once 7 panels were open. Panels now get live updates over WebSockets, which don't use up the browser's limit of 6 connections per address; leftover request data can no longer break the next click.

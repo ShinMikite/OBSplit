@@ -1111,6 +1111,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                        "status": APP.hub.status})
             if p == "/api/broadcasts":
                 return self.send_json(self.broadcasts())
+            if p == "/api/yt/streams":
+                return self.send_json(self.stream_keys())
             if p == "/api/video":
                 return self.send_json(self.video((qs.get("id") or [""])[0]))
             if p == "/oauth/callback":
@@ -1466,6 +1468,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json({"ok": True})
             if p == "/api/video":
                 return self.send_json(self.update_video(self.jbody()))
+            if p == "/api/yt/new":
+                return self.send_json(self.new_broadcast(self.jbody()))
+            if p == "/api/yt/use-key":
+                return self.send_json({"ok": True, **self.use_stream_key(self.jbody())})
             if p == "/api/thumbnail":
                 vid2 = (qs.get("id") or [""])[0]
                 data = self.body()
@@ -1486,6 +1492,92 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             log("POST error", p, traceback.format_exc()[-800:])
             return self.send_json({"error": "Something went wrong: " + str(e)[:200]}, 500)
+
+    # --- creating streams and connecting OBS to a stream key, without opening a browser
+    #     (the stream key itself never leaves this program: it goes from YouTube straight into OBS)
+    YT_RTMPS = "rtmps://a.rtmps.youtube.com:443/live2"
+
+    def stream_keys(self):
+        r = APP.google.request("GET", "/liveStreams", {"part": "snippet,cdn,contentDetails,status", "mine": "true",
+                                                       "maxResults": 50}, cost=1)
+        obs_key = None
+        try:
+            obs_key = (APP.obs.request("GetStreamServiceSettings").get("streamServiceSettings") or {}).get("key")
+        except Exception:
+            pass
+        out = []
+        for s in r.get("items") or []:
+            cdn = s.get("cdn") or {}
+            ing = cdn.get("ingestionInfo") or {}
+            out.append({"id": s["id"], "title": (s.get("snippet") or {}).get("title") or "Stream key",
+                        "reusable": (s.get("contentDetails") or {}).get("isReusable", True),
+                        "resolution": cdn.get("resolution"), "frameRate": cdn.get("frameRate"),
+                        "in_obs": bool(obs_key) and ing.get("streamName") == obs_key})
+        auth = obslink._ini_value(obslink.profile_ini(), "Auth", "Type") or ""
+        return {"streams": out, "defaults": APP.config.get("last_broadcast") or {},
+                "obs_account_connected": "youtube" in auth.lower()}
+
+    def use_stream_key(self, b):
+        try:
+            if APP.obs.request("GetStreamStatus").get("outputActive"):
+                raise ApiError(400, "Stop streaming first, then switch the stream key.")
+        except obslink.ObsError:
+            raise ApiError(400, "OBS isn't connected.")
+        sid = b.get("streamId")
+        if not sid:   # no reusable key yet: make one
+            r = APP.google.request("POST", "/liveStreams", {"part": "snippet,cdn,contentDetails"}, {
+                "snippet": {"title": "OBSplit"},
+                "cdn": {"ingestionType": "rtmp", "resolution": "variable", "frameRate": "variable"},
+                "contentDetails": {"isReusable": True}}, cost=50)
+            sid = r["id"]
+        r = APP.google.request("GET", "/liveStreams", {"part": "cdn", "id": sid}, cost=1)
+        items = r.get("items") or []
+        key = ((items[0].get("cdn") or {}).get("ingestionInfo") or {}).get("streamName") if items else None
+        if not key:
+            raise ApiError(404, "Couldn't read that stream key from YouTube.")
+        APP.obs.request("SetStreamServiceSettings", {"streamServiceType": "rtmp_common", "streamServiceSettings": {
+            "service": "YouTube - RTMPS", "server": self.YT_RTMPS, "key": key}})
+        log("OBS stream key set from YouTube stream", sid)   # never log the key itself
+        return {"streamId": sid}
+
+    def new_broadcast(self, b):
+        title = (b.get("title") or "").strip()
+        if not title:
+            raise ApiError(400, "Give the stream a title.")
+        if len(title) > 100 or "<" in title or ">" in title:
+            raise ApiError(400, "Titles can be up to 100 characters and can't contain < or >.")
+        when = (b.get("when") or "").strip()
+        if when:
+            try:
+                start = datetime.fromisoformat(when).astimezone(timezone.utc)   # the panel sends local time
+            except ValueError:
+                raise ApiError(400, "That date/time isn't valid.")
+            if start < datetime.now(timezone.utc) - timedelta(minutes=5):
+                raise ApiError(400, "Pick a time in the future.")
+        else:
+            start = datetime.now(timezone.utc)
+        latency = b.get("latency") if b.get("latency") in ("normal", "low", "ultraLow") else "normal"
+        privacy = b.get("privacy") if b.get("privacy") in ("public", "unlisted", "private") else "public"
+        body = {"snippet": {"title": title, "description": (b.get("description") or "")[:5000],
+                            "scheduledStartTime": start.strftime("%Y-%m-%dT%H:%M:%S.000Z")},
+                "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(b.get("madeForKids"))},
+                "contentDetails": {"enableAutoStart": b.get("autoStart", True) is not False,
+                                   "enableAutoStop": b.get("autoStop", True) is not False,
+                                   "latencyPreference": latency, "enableDvr": b.get("dvr", True) is not False,
+                                   "monitorStream": {"enableMonitorStream": False}}}
+        r = APP.google.request("POST", "/liveBroadcasts", {"part": "snippet,status,contentDetails"}, body, cost=50)
+        bid = r["id"]
+        if b.get("streamId"):
+            APP.google.request("POST", "/liveBroadcasts/bind", {"id": bid, "part": "id,contentDetails",
+                                                                "streamId": b["streamId"]}, cost=50)
+        if b.get("categoryId") or b.get("tags"):
+            self.update_video({"id": bid, "title": title, "description": body["snippet"]["description"],
+                               "categoryId": b.get("categoryId"), "tags": b.get("tags") or []})
+        keep = {k: b.get(k) for k in ("title", "description", "categoryId", "tags", "privacy", "madeForKids",
+                                      "autoStart", "autoStop", "latency", "dvr", "streamId")}
+        APP.config.update(last_broadcast=keep)
+        APP.chat.wake.set()
+        return self.video(bid)
 
     def update_video(self, b):
         vid = b.get("id")

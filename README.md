@@ -44,6 +44,8 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
   - hover a message to delete it, time the user out or ban them
   - click a name for a user card: their message history across streams, time-outs from 10 s to 24 h, ban/unban, make moderator
   - Tab completes @names
+- **Set up a new stream without a browser (+ New):** title, description, category, tags, visibility, "go live when I press Start Streaming" or schedule for later, Made for Kids, auto-start/stop, latency and DVR, pre-filled from your last stream. It's linked to your stream key automatically, so **Start Streaming in OBS goes straight live**.
+- **Use my YouTube stream key in OBS:** one click puts your reusable YouTube stream key into OBS's stream settings (or creates one). The key goes from YouTube straight into OBS; it's never shown.
 - **YT Stream Info:** picks your live or next scheduled stream automatically. Edit the **title, description, category, visibility, tags and thumbnail at any time, including while live.** Drag and drop a thumbnail to upload it.
 - **YT Stats:** viewers (and peak), uptime, likes, chat per minute, chatters, first-timers, Super Chat totals, new members, **stream health** with YouTube's warnings, and API usage.
 

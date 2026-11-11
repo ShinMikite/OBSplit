@@ -20,13 +20,22 @@
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   #saveBar { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 4px; display: flex; gap: 8px; align-items: center; }
   .over { color: var(--danger); }
+  .sec { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 6px; }
+  label.opt { display: flex; justify-content: flex-start; align-items: center; gap: 6px; font-size: .88em;
+    color: var(--text); margin: 2px 0; }
+  label.opt select { width: auto; }
+  .opt input[type=datetime-local] { flex: 1; }
+  .keybox { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: .86em; }
+  .keybox .row-flex select { flex: 1; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); }
 </style>
 </head>
 <body>
 <div class="bar">
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <select id="pick" class="grow"></select>
-  <button id="reload" title="Reload from YouTube">⟳</button>
+  <button id="newBtn" title="Set up a new stream">+ New</button>
+  <button id="reload" class="ib" title="Reload from YouTube"></button>
 </div>
 <div id="main"><div class="notice">Loading…</div></div>
 <input id="file" type="file" accept="image/jpeg,image/png" hidden>
@@ -83,7 +92,7 @@ function dirty() {
 
 async function loadList(keep) {
   if (!connected) {
-    $('#main').innerHTML = '<div class="notice"><b>Connect your YouTube account</b> on the <b>YT Setup</b> panel to edit your stream title, description and thumbnail here.</div>';
+    $('#main').innerHTML = '<div class="notice"><b>Connect your YouTube account</b> on the <b>OBSplit Setup</b> panel to set up new streams and edit the title, description and thumbnail here.</div>';
     $('#pick').innerHTML = ''; return;
   }
   let d;
@@ -95,7 +104,7 @@ async function loadList(keep) {
     o.value = b.id; pick.appendChild(o);
   }
   if (!d.broadcasts.length) {
-    $('#main').innerHTML = '<div class="notice"><b>No live or scheduled stream yet.</b><br><br>Click <b>Manage Broadcast</b> in OBS (or just start streaming). It will show up here and you can edit it at any time, including while live.</div>';
+    $('#main').innerHTML = '<div class="notice"><b>No live or scheduled stream yet.</b><br><br>Set one up with <b>+ New</b> above. Then press Start Streaming in OBS.</div>';
     return;
   }
   const want = keep && d.broadcasts.some(b => b.id === keep) ? keep : (d.broadcasts.find(b => b.id === d.current) || d.broadcasts.find(b => b.state === 'live') || d.broadcasts[0]).id;
@@ -108,7 +117,89 @@ async function loadVideo(id) {
   catch (e) { toast(e.message, true); }
 }
 $('#pick').onchange = () => loadVideo($('#pick').value);
+$('#reload').appendChild(ico('refresh'));
 $('#reload').onclick = () => loadList(cur);
+$('#newBtn').onclick = () => newForm();
+
+// ---------------- new stream (+ connect OBS to the stream key)
+async function keyBox(box, keys) {
+  box.innerHTML = '';
+  box.appendChild(el('div', 'sec', 'Stream key (what OBS sends to)'));
+  const inObs = keys.streams.find(k => k.in_obs);
+  const line = el('div', inObs ? 'ok' : 'warn', inObs ? 'OBS is set to "' + inObs.title + '".' : 'OBS isn\'t using one of your YouTube stream keys yet.');
+  line.style.margin = '4px 0'; box.appendChild(line);
+  if (keys.obs_account_connected) box.appendChild(el('div', 'muted small', 'OBS also has your YouTube account connected (Settings → Stream). Disconnect it there so Start Streaming goes straight live instead of opening "Manage Broadcast".'));
+  const row = el('div', 'row-flex');
+  const sel = el('select'); sel.id = 'streamKey';
+  for (const k of keys.streams.filter(k => k.reusable)) {
+    const o = el('option', null, k.title + (k.resolution && k.resolution !== 'variable' ? ' (' + k.resolution + ')' : ''));
+    o.value = k.id; sel.appendChild(o);
+  }
+  const mk = el('option', null, 'Create a new stream key'); mk.value = ''; sel.appendChild(mk);
+  sel.value = (inObs && inObs.id) || (keys.defaults.streamId && keys.streams.some(k => k.id === keys.defaults.streamId) ? keys.defaults.streamId : (sel.options[0] || {}).value || '');
+  const use = el('button', null, 'Use in OBS');
+  use.title = 'Puts this stream key into OBS (Settings → Stream). The key goes from YouTube straight into OBS.';
+  use.onclick = async () => {
+    use.disabled = true;
+    try { const r = await api('/api/yt/use-key', { streamId: sel.value }); toast('OBS now streams to this key'); keyBox(box, await api('/api/yt/streams')); }
+    catch (e) { toast(e.message, true); use.disabled = false; }
+  };
+  row.append(sel, use); box.appendChild(row);
+}
+
+async function newForm() {
+  if (!connected) return toast('Connect your YouTube account on the OBSplit Setup panel first.', true);
+  let keys, d;
+  try { [keys, d] = await Promise.all([api('/api/yt/streams'), api('/api/broadcasts')]); } catch (e) { return toast(e.message, true); }
+  cats = d.categories;
+  const p = keys.defaults || {};
+  const m = $('#main'); m.innerHTML = `
+    <div class="sec" style="margin-top:0">New stream</div>
+    <div><label>Title <span id="tc"></span></label><input id="nTitle" type="text" maxlength="100"></div>
+    <div><label>Description</label><textarea id="nDesc" maxlength="5000" rows="5"></textarea></div>
+    <div class="two">
+      <div><label>Category</label><select id="nCat"></select></div>
+      <div><label>Visibility</label><select id="nPriv"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></div>
+    </div>
+    <div><label>Tags (comma separated)</label><input id="nTags" type="text"></div>
+    <div class="sec">When</div>
+    <label class="opt"><input type="radio" name="when" value="now" checked> As soon as I press Start Streaming</label>
+    <label class="opt"><input type="radio" name="when" value="later"> Schedule for <input id="nWhen" type="datetime-local"></label>
+    <div class="sec">Options</div>
+    <label class="opt"><input id="nKids" type="checkbox"> Made for kids</label>
+    <label class="opt"><input id="nAutoStart" type="checkbox" checked> Go live automatically when OBS starts sending</label>
+    <label class="opt"><input id="nAutoStop" type="checkbox" checked> End the stream automatically when OBS stops</label>
+    <label class="opt"><input id="nDvr" type="checkbox" checked> Let viewers rewind (DVR)</label>
+    <label class="opt">Latency <select id="nLat" style="width:auto"><option value="normal">Normal (best quality)</option><option value="low">Low</option><option value="ultraLow">Ultra-low (fastest chat replies)</option></select></label>
+    <div class="keybox" id="keyBox"></div>
+    <div id="saveBar"><button id="create" class="primary">Create stream</button><button id="cancel">Cancel</button><span class="muted small">Uses about 150 API units. Add a thumbnail right after.</span></div>`;
+  $('#nCat').innerHTML = cats.map(c => `<option value="${c.id}">${c.title.replace(/</g, '')}</option>`).join('');
+  $('#nTitle').value = p.title || ''; $('#nDesc').value = p.description || ''; $('#nCat').value = p.categoryId || '20';
+  $('#nPriv').value = p.privacy || 'public'; $('#nTags').value = (p.tags || []).join(', ');
+  $('#nKids').checked = !!p.madeForKids; $('#nAutoStart').checked = p.autoStart !== false; $('#nAutoStop').checked = p.autoStop !== false;
+  $('#nDvr').checked = p.dvr !== false; $('#nLat').value = p.latency || 'normal';
+  const t = new Date(Date.now() + 3600e3); t.setMinutes(0, 0, 0);
+  $('#nWhen').value = new Date(t - t.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+  $('#nWhen').onfocus = () => { document.querySelector('input[name=when][value=later]').checked = true; };
+  const tc = () => { $('#tc').textContent = $('#nTitle').value.length + '/100'; }; $('#nTitle').oninput = tc; tc();
+  await keyBox($('#keyBox'), keys);
+  $('#cancel').onclick = () => loadList(cur);
+  $('#create').onclick = async () => {
+    const later = document.querySelector('input[name=when]:checked').value === 'later';
+    const body = { title: $('#nTitle').value.trim(), description: $('#nDesc').value, categoryId: $('#nCat').value,
+      privacy: $('#nPriv').value, tags: $('#nTags').value.split(',').map(x => x.trim()).filter(Boolean),
+      when: later ? $('#nWhen').value : '', madeForKids: $('#nKids').checked, autoStart: $('#nAutoStart').checked,
+      autoStop: $('#nAutoStop').checked, dvr: $('#nDvr').checked, latency: $('#nLat').value,
+      streamId: ($('#streamKey') || {}).value || '' };
+    if (!body.title) return toast('Give the stream a title.', true);
+    $('#create').disabled = true;
+    try {
+      const v = await api('/api/yt/new', body);
+      toast(later ? 'Stream scheduled. Add a thumbnail now if you like.' : 'Stream ready. Press Start Streaming in OBS to go live.');
+      await loadList(v.id);
+    } catch (e) { toast(e.message, true); $('#create').disabled = false; }
+  };
+}
 
 async function save() {
   const v = values();
