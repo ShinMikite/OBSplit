@@ -12,11 +12,16 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
 
 ### Scenes+
 - **Scene thumbnails** for every scene. Click one to switch to it. This only changes scenes; **Start Streaming** in OBS still decides when you're live. Studio Mode is supported (click = preview, double-click = switch).
-- **＋ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
-- **＋ Discord:** adds Discord voice audio in one click and reuses your existing Discord source instead of creating duplicates. It also fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
-- **＋ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
 - **Per-scene audio:** small 🎙 / 🔈 switches on each scene. For example, mute the mic automatically whenever you switch to your "Starting soon" scene.
 - Scenes that are black when they aren't showing, such as videos that only play while their scene is on screen, show the last picture from when they were.
+
+### Sources+
+- The current scene's sources, top layer first: show/hide 👁, lock 🔒, move ▲▼, double-click for Properties, and a ⋯ menu (Filters, bring to front, send to back, remove).
+- **📌 Pinned layers:** mark a source **Always on top** or **Always at bottom**. It stays there in **every scene**, whatever you add or move later. Useful for alerts on top and backgrounds at the bottom.
+- **＋ Game:** pick a running game and get **one source with picture and sound together**, fitted to the screen and placed under your alerts. It follows the game by its program file, so changing window titles don't break it. You can also switch an existing game source to a different game.
+- **＋ Discord:** adds Discord voice audio in one click, to one scene or **all scenes**, even before Discord is open. It reuses your existing Discord source instead of creating duplicates, and fixes OBS's default matching, which can latch onto Chrome or other apps when your Discord channel changes.
+- **＋ Screen region:** your screen dims. **Drag a box** or **click a window** and you get a Display Capture cropped to exactly that area. You can re-select the area later.
+- **＋ More:** image, media file, browser, text, color, slideshow, camera / capture card, window, display, audio input or app audio, opened straight into OBS's setup window. You can also add a source you already have (like OBS's "Paste (Reference)"), to one scene or all scenes.
 
 ### Audio+
 - A simpler mixer: mute, volume with a live meter, and **🎧 Hear** (play it in your headphones).
@@ -57,7 +62,7 @@ New media, browser and capture-card sources automatically get **Monitor and Outp
 1. Download **`OBSplit-Setup-x.y.z.exe`** from [Releases](https://github.com/ShinMikite/OBSplit/releases).
 2. **Close OBS**, then run the installer. No admin rights are needed; it installs to `%LOCALAPPDATA%\OBSplit`.
    Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Click **More info → Run anyway**.
-3. Start OBS. The new panels are in the **Docks** menu: **YT Chat, YT Stream Info, YT Stats, Scenes+, Audio+, OBSplit Setup**. Drag them where you like, then use **Docks → Lock Docks**.
+3. Start OBS. The new panels are in the **Docks** menu: **YT Chat, YT Stream Info, YT Stats, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like, then use **Docks → Lock Docks**.
 4. Open **OBSplit Setup** for the optional YouTube connection.
 
 ### What the installer changes in OBS
@@ -67,7 +72,7 @@ To be transparent, here is everything it does:
 | Change | Why |
 |---|---|
 | Turns on OBS's built-in **WebSocket server** (password-protected; a random password is created if you don't have one) | Scenes+ and Audio+ talk to OBS through it |
-| Adds 6 **custom browser docks** (all pointing to `http://127.0.0.1:47821`) | The panels |
+| Adds 7 **custom browser docks** (all pointing to `http://127.0.0.1:47821`) | The panels |
 | Adds 2 scripts to each **scene collection** (`obsplit-launcher.lua`, `auto-audio-setup.lua`) | Starts the helper with OBS; auto audio setup |
 
 A backup of every OBS file it touches is saved to `%APPDATA%\obs-studio\obsplit-backups\` first. **Uninstalling reverses all of it**, including switching the WebSocket server back off if it was off before. To reconnect later, for example after creating a new scene collection, use **Start menu → OBSplit → OBSplit - Connect to OBS**.

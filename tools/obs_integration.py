@@ -22,7 +22,8 @@ OBS = os.path.join(os.environ.get("APPDATA", ""), "obs-studio")
 STATE = os.path.join(APPDIR, "app", "data", "obs_integration.json")
 URL = "http://127.0.0.1:47821"
 DOCKS = [("YT Chat", URL + "/chat"), ("YT Stream Info", URL + "/info"), ("YT Stats", URL + "/stats"),
-         ("Scenes+", URL + "/scenes"), ("Audio+", URL + "/audio"), ("OBSplit Setup", URL + "/")]
+         ("Scenes+", URL + "/scenes"), ("Sources+", URL + "/sources"), ("Audio+", URL + "/audio"),
+         ("OBSplit Setup", URL + "/")]
 SCRIPTS = [os.path.join(APPDIR, "obs-scripts", "obsplit-launcher.lua"),
            os.path.join(APPDIR, "obs-scripts", "auto-audio-setup.lua")]
 QUIET = "--quiet" in sys.argv

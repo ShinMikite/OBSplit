@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources+</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  .bar2 { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-bottom: 1px solid var(--border); flex: none; }
+  .bar2 button { font-size: .85em; }
+  #list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .it { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-left: 3px solid transparent; user-select: none; }
+  .it:hover { background: rgba(255,255,255,.04); }
+  .it.hidden-src .nm { opacity: .45; text-decoration: line-through; }
+  .it.pin-top { border-left-color: #c89400; } .it.pin-bottom { border-left-color: #6a7385; }
+  .ic { width: 1.5em; text-align: center; flex: none; }
+  .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+  .nm small { color: var(--muted); margin-left: 5px; }
+  .ib { border: 0; background: none; padding: 1px 5px; font-size: .9em; opacity: .8; }
+  .ib:hover { opacity: 1; background: rgba(255,255,255,.08); }
+  .ib.off { opacity: .35; }
+  .pin { font-size: .68em; font-weight: 700; padding: 0 5px; border-radius: 4px; flex: none; }
+  .pin.top { background: #c89400; color: #111; } .pin.bottom { background: #4a5263; color: #fff; }
+  .menu { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; min-width: 190px; }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 10px; border-radius: 5px; }
+  .menu button:hover { background: rgba(255,255,255,.08); }
+  .menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+  .pick { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; margin: 6px 0; }
+  .pick button { text-align: left; display: flex; gap: 8px; align-items: center; padding: 6px 8px; }
+  .pick button b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .pick button small { color: var(--muted); white-space: nowrap; }
+  .sec { font-size: .75em; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 8px; }
+  .row2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9em; margin: 4px 0; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span id="pill" class="pill"><span class="dot"></span>…</span>
+  <span id="sceneName" class="grow muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+</div>
+<div class="bar2">
+  <button id="addGame" title="Add a running game (picture + sound)">＋ Game</button>
+  <button id="addDiscord" title="Add Discord voice audio">＋ Discord</button>
+  <button id="addRegion" title="Drag a box on your screen to capture that area">＋ Screen region</button>
+  <button id="addMore" title="Image, media, browser, text, camera… or a source you already have">＋ More</button>
+</div>
+<div id="list"></div>
+<script src="/static/common.js"></script>
+<script>
+let st = { items: [], scenes: [], pins: {} };
+const ICON = { game_capture: '🎮', window_capture: '🪟', monitor_capture: '🖥', dshow_input: '📷', image_source: '🖼',
+  slideshow: '🖼', ffmpeg_source: '▶', vlc_source: '▶', browser_source: '🌐', text_gdiplus: 'T', text_ft2_source: 'T',
+  color_source: '■', wasapi_input_capture: '🎙', wasapi_output_capture: '🔈', wasapi_process_output_capture: '🔊',
+  scene: '🎬', group: '📁' };
+const KINDNAME = { game_capture: 'game', window_capture: 'window', monitor_capture: 'display', dshow_input: 'camera / capture card',
+  image_source: 'image', ffmpeg_source: 'media', browser_source: 'browser', wasapi_input_capture: 'mic',
+  wasapi_process_output_capture: 'app audio', scene: 'scene', group: 'group' };
+const base = k => (k || '').replace(/_v\d+$/, '');
+const act = (id, action, value) => api('/api/obs/item', { scene: st.items_scene, id, action, value }).catch(e => toast(e.message, true));
+
+// ---------------- list
+function draw() {
+  const list = $('#list');
+  const p = $('#pill');
+  p.className = 'pill' + (st.connected ? ' watching' : st.reconnecting ? ' reconnect' : '');
+  p.innerHTML = '<span class="dot"></span>' + (st.connected ? 'OBS' : st.reconnecting ? 'Reconnecting…' : 'OBS offline');
+  $('#sceneName').textContent = st.items_scene ? 'Scene: ' + st.items_scene + (st.studio ? ' (preview)' : '') : '';
+  if (!st.connected && !(st.items && st.items.length)) {
+    list.innerHTML = '<div class="notice"></div>'; $('.notice', list).textContent = st.error || 'Connecting to OBS…'; return;
+  }
+  list.classList.toggle('stale', !st.connected);
+  list.innerHTML = '';
+  if (!st.items.length) list.appendChild(el('div', 'notice', 'This scene is empty. Add something with the buttons above.'));
+  for (const it of st.items) {
+    const k = base(it.kind), pin = st.pins[it.name];
+    const r = el('div', 'it' + (it.enabled ? '' : ' hidden-src') + (pin ? ' pin-' + pin : ''));
+    const eye = el('button', 'ib' + (it.enabled ? '' : ' off'), it.enabled ? '👁' : '◌');
+    eye.title = it.enabled ? 'Showing. Click to hide' : 'Hidden. Click to show';
+    eye.onclick = () => act(it.id, 'visible', !it.enabled);
+    const lock = el('button', 'ib' + (it.locked ? '' : ' off'), it.locked ? '🔒' : '🔓');
+    lock.title = it.locked ? 'Locked in place. Click to unlock' : 'Click to lock it in place on the preview';
+    lock.onclick = () => act(it.id, 'lock', !it.locked);
+    const ic = el('span', 'ic', ICON[k] || '•');
+    const nm = el('span', 'nm', it.name); nm.appendChild(el('small', null, KINDNAME[k] || ''));
+    nm.title = it.name + '\nDouble-click for properties';
+    nm.ondblclick = () => act(it.id, 'properties');
+    r.append(eye, lock, ic, nm);
+    if (pin) { const pg = el('span', 'pin ' + pin, pin === 'top' ? '📌 TOP' : '📌 BOTTOM'); pg.title = pin === 'top' ? 'Always on top in every scene' : 'Always at the bottom in every scene'; r.appendChild(pg); }
+    const up = el('button', 'ib', '▲'); up.title = 'Move up (in front)'; up.onclick = () => act(it.id, 'up');
+    const dn = el('button', 'ib', '▼'); dn.title = 'Move down (behind)'; dn.onclick = () => act(it.id, 'down');
+    const more = el('button', 'ib', '⋯'); more.title = 'More'; more.onclick = e => menu(e, it);
+    r.append(up, dn, more);
+    r.oncontextmenu = e => { e.preventDefault(); menu(e, it); };
+    list.appendChild(r);
+  }
+}
+
+function menu(e, it) {
+  document.querySelectorAll('.menu').forEach(m => m.remove());
+  const m = el('div', 'menu'); const pin = st.pins[it.name];
+  const item = (label, fn) => { const b = el('button', null, label); b.onclick = () => { m.remove(); fn(); }; m.appendChild(b); };
+  if (!['scene', 'group'].includes(base(it.kind))) { item('Properties…', () => act(it.id, 'properties')); item('Filters…', () => act(it.id, 'filters')); m.appendChild(el('hr')); }
+  item('Bring to front', () => act(it.id, 'top'));
+  item('Send to back', () => act(it.id, 'bottom'));
+  m.appendChild(el('hr'));
+  item((pin === 'top' ? '✓ ' : '') + '📌 Always on top (every scene)', () => act(it.id, 'pin', pin === 'top' ? '' : 'top'));
+  item((pin === 'bottom' ? '✓ ' : '') + '📌 Always at bottom (every scene)', () => act(it.id, 'pin', pin === 'bottom' ? '' : 'bottom'));
+  m.appendChild(el('hr'));
+  item('Remove from this scene', () => { if (confirm('Remove "' + it.name + '" from this scene?')) act(it.id, 'remove'); });
+  document.body.appendChild(m);
+  const x = Math.min(e.clientX, innerWidth - m.offsetWidth - 6), y = Math.min(e.clientY, innerHeight - m.offsetHeight - 6);
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+  setTimeout(() => document.addEventListener('click', function off(ev) { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('click', off); } }), 0);
+}
+
+// ---------------- add dialogs
+function modal(title) {
+  const bg = el('div', 'modal-bg'), m = el('div', 'modal');
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  m.appendChild(el('h3', null, title));
+  bg.appendChild(m); document.body.appendChild(bg);
+  const close = () => bg.remove();
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+  return { m, close };
+}
+function sceneSelect(scenes, cur, allowAll) {
+  const s = el('select');
+  if (allowAll) { const o = el('option', null, 'All scenes'); o.value = '__all__'; s.appendChild(o); }
+  for (const n of scenes) { const o = el('option', null, n); o.value = n; s.appendChild(o); }
+  s.value = cur; return s;
+}
+const where = arr => arr && arr.length ? (arr.length > 2 ? arr.length + ' scenes' : arr.join(' and ')) : '';
+
+$('#addGame').onclick = async function openGame() {
+  let d; try { d = await api('/api/obs/windows'); } catch (e) { return toast(e.message, true); }
+  const { m, close } = modal('Add a game');
+  const r1 = el('div', 'row2'); r1.append(el('span', null, 'Scene:'));
+  const sc = sceneSelect(d.scenes, d.scene, false); r1.append(sc);
+  const games = d.games.filter(g => g.mode === 'window');
+  let replaceSel = null;
+  if (games.length) {
+    r1.append(el('span', null, 'Add as:'));
+    replaceSel = el('select');
+    replaceSel.appendChild(Object.assign(el('option', null, 'a new game source'), { value: '' }));
+    for (const g of games) replaceSel.appendChild(Object.assign(el('option', null, 'switch "' + g.name + '" (' + (g.exe || 'none') + ')'), { value: g.name }));
+    r1.append(replaceSel);
+  }
+  const refresh = el('button', null, '⟳'); refresh.title = 'Refresh the list'; refresh.onclick = () => { close(); openGame(); };
+  r1.append(refresh); m.appendChild(r1);
+  const list = el('div', 'pick');
+  const add = w => {
+    const b = el('button'); b.append(el('b', null, w.title), el('small', null, w.exe + (w.fullscreen ? ' · fullscreen' : '')));
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const r = await api('/api/obs/add-game', { window: w.window, title: w.title, scene: sc.value, replace: replaceSel ? replaceSel.value : '' });
+        toast(r.replaced ? '"' + r.name + '" now captures ' + w.exe : 'Added "' + r.name + '" (picture + sound) to ' + r.scene); close();
+      } catch (e) { toast(e.message, true); b.disabled = false; }
+    };
+    list.appendChild(b);
+  };
+  const g = d.windows.filter(w => w.game), other = d.windows.filter(w => !w.game);
+  list.appendChild(el('div', 'sec', g.length ? 'Games' : 'No games detected. Start your game, then click ⟳'));
+  g.forEach(add);
+  if (other.length) {
+    const t = el('div', 'sec', '▸ Other windows (' + other.length + ')'); t.style.cursor = 'pointer';
+    t.onclick = () => { t.remove(); list.appendChild(el('div', 'sec', 'Other windows')); other.forEach(add); };
+    list.appendChild(t);
+  }
+  m.appendChild(list);
+  m.appendChild(el('div', 'muted small', 'Adds one Game Capture with sound included, fitted to the screen. It follows the game even if its window title changes.'));
+};
+
+$('#addDiscord').onclick = async () => {
+  let d; try { d = await api('/api/obs/discord'); } catch (e) { return toast(e.message, true); }
+  const { m, close } = modal('Discord audio');
+  m.appendChild(el('div', 'row2')).append(el('span', d.running ? 'ok' : 'warn',
+    d.running ? '● Discord is running' : '● Discord isn\'t running. That\'s fine: it starts capturing as soon as you open Discord.'));
+  if (d.sources.length) {
+    for (const s of d.sources) {
+      const r = el('div', 'row2');
+      r.append(el('b', null, s.name), el('span', 'muted', s.scenes.length ? 'in: ' + s.scenes.join(', ') : 'not in any scene'));
+      r.append(el('span', s.priority === 2 ? 'ok' : 'warn', s.priority === 2 ? '✓ matched to Discord' : '⚠ can grab other apps (fixed when you click below)'));
+      m.appendChild(r);
+    }
+  } else m.appendChild(el('div', 'muted', 'No Discord audio source yet.'));
+  const r2 = el('div', 'row2'); r2.append(el('span', null, 'Scene:'));
+  const sc = sceneSelect(st.scenes, st.items_scene, true); r2.append(sc); m.appendChild(r2);
+  const btn = el('button', 'primary', d.sources.length ? 'Add / fix' : 'Add Discord audio');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const r = await api('/api/obs/discord', { scene: sc.value });
+      toast(r.scenes.length ? '"' + r.name + '" added to ' + where(r.scenes) : '"' + r.name + '" was already there (matching fixed)');
+      close();
+    } catch (e) { toast(e.message, true); btn.disabled = false; }
+  };
+  m.appendChild(btn);
+  m.appendChild(el('div', 'muted small', 'One Discord source is shared by every scene it\'s in, so volume and settings are the same everywhere.'));
+};
+
+async function pickRegion(scene, replace) {
+  toast('Drag a box on your screen (or click a window). Esc cancels.');
+  try {
+    const r = await api('/api/obs/region', { scene, replace });
+    if (r.cancelled) return toast('Cancelled');
+    toast((replace ? 'Updated "' : 'Added "') + r.name + '" (' + r.w + '×' + r.h + ') to ' + r.scene);
+  } catch (e) { toast(e.message, true); }
+}
+$('#addRegion').onclick = async () => {
+  let d; try { d = await api('/api/obs/regions'); } catch (e) { return toast(e.message, true); }
+  if (!d.regions.length) return pickRegion(d.scene, '');
+  const { m, close } = modal('Screen region');
+  const b = el('button', 'primary', '＋ New region in ' + d.scene); b.onclick = () => { close(); pickRegion(d.scene, ''); };
+  m.appendChild(b);
+  m.appendChild(el('div', 'sec', 'Or re-select an existing one'));
+  const list = el('div', 'pick');
+  for (const n of d.regions) { const x = el('button'); x.append(el('b', null, n), el('small', null, 'drag a new area')); x.onclick = () => { close(); pickRegion(d.scene, n); }; list.appendChild(x); }
+  m.appendChild(list);
+};
+
+$('#addMore').onclick = async () => {
+  let d; try { d = await api('/api/obs/addmenu'); } catch (e) { return toast(e.message, true); }
+  const { m, close } = modal('Add a source');
+  const r1 = el('div', 'row2'); r1.append(el('span', null, 'Scene:'));
+  const sc = sceneSelect(d.scenes, d.scene, true); r1.append(sc); m.appendChild(r1);
+  m.appendChild(el('div', 'sec', 'New'));
+  const list = el('div', 'pick');
+  for (const k of d.kinds) {
+    const b = el('button'); b.append(el('b', null, (ICON[base(k.kind)] || '•') + '  ' + k.label));
+    b.onclick = async () => {
+      try { const r = await api('/api/obs/add-source', { kind: k.kind, scene: sc.value }); toast('Added "' + r.name + '" to ' + where(r.scenes) + '. Set it up in the window OBS just opened.'); close(); }
+      catch (e) { toast(e.message, true); }
+    };
+    list.appendChild(b);
+  }
+  m.appendChild(list);
+  m.appendChild(el('div', 'sec', 'A source you already have (shares its settings, like OBS\'s "Paste (Reference)")'));
+  const ex = el('div', 'row2'); const sel = el('select'); sel.style.flex = '1';
+  for (const n of d.existing.concat(d.scenes.map(s => '🎬 ' + s))) { const o = el('option', null, n); o.value = n.replace(/^🎬 /, ''); sel.appendChild(o); }
+  const go = el('button', null, 'Add');
+  go.onclick = async () => {
+    try { const r = await api('/api/obs/add-source', { existing: sel.value, scene: sc.value }); toast('"' + r.name + '" added to ' + where(r.scenes)); close(); }
+    catch (e) { toast(e.message, true); }
+  };
+  ex.append(sel, go); m.appendChild(ex);
+};
+
+// ---------------- live updates
+(function open() {
+  const es = new EventSource('/obs-events?view=sources');
+  es.onmessage = m => { const ev = JSON.parse(m.data); if (ev.type === 'state') { st = ev; draw(); } };
+  es.onerror = () => { es.close(); st = { ...st, connected: false, reconnecting: true }; draw(); setTimeout(open, 1000); };
+})();
+</script>
+</body>
+</html>

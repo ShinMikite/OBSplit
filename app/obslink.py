@@ -331,6 +331,7 @@ class ObsLink:
         with self.lock:
             st = json.loads(json.dumps(self.state))
         st["rules"] = self.config.get("scene_audio") or {}
+        st["pins"] = self.config.get("pins") or {}
         st["track_names"] = self.track_names(st)
         return st
 
@@ -518,6 +519,15 @@ class ObsLink:
             elif t in ("InputCreated", "InputRemoved", "InputNameChanged", "SceneItemCreated", "SceneItemRemoved",
                        "InputSettingsChanged"):
                 upd = "sync"
+            elif t in ("SceneItemEnableStateChanged", "SceneItemLockStateChanged", "SceneItemListReindexed"):
+                upd = "items"
+        if t in ("SceneItemCreated", "SceneItemListReindexed") and e.get("sceneName"):
+            self.tasks.put(("pins", e.get("sceneName")))
+        if t == "CurrentPreviewSceneChanged":
+            self.tasks.put(("items", None))
+        if upd == "items":
+            self.tasks.put(("items", e.get("sceneName")))
+            upd = None
         if upd == "program":
             self.tasks.put(("program", e.get("sceneName")))
         elif upd == "sync":
@@ -536,9 +546,17 @@ class ObsLink:
                     while not self.tasks.empty() and self.tasks.queue[0][0] == "sync":
                         self.tasks.get_nowait()
                     self.sync()
+                elif task == "items":
+                    if arg is None or arg == self.target_scene():
+                        self.refresh_items()
+                        self.push_state()
+                elif task == "pins":
+                    self.enforce_pins(arg)
                 elif task == "program":
                     self.apply_rules(arg)
+                    self.enforce_pins(arg)
                     self.refresh_members()
+                    self.refresh_items()
                     self.thumb_due[arg] = time.time() + 3  # one snapshot once any fade-in is over
                     self.push_state()
                 elif task == "setvol":
@@ -560,6 +578,7 @@ class ObsLink:
                     r = self.request("GetCurrentPreviewScene") if self.state["studio"] else {}
                     with self.lock:
                         self.state["preview"] = r.get("sceneName") if self.state["studio"] else None
+                    self.refresh_items()
                     self.push_state()
             except ObsError as e:
                 self.log("obs task error", task, str(e))
@@ -620,6 +639,7 @@ class ObsLink:
                 if s not in scenes:
                     self.thumbs.pop(s, None)
         self.refresh_members()
+        self.refresh_items()
         self.push_state()
 
     def _scene_inputs(self, scene, seen):
@@ -1240,6 +1260,140 @@ class ObsLink:
         self._delete_old_checks()
         self.mixcheck = {"state": "idle"}
 
+    # ----- Sources+: the current scene's layers, pinned layers, adding sources
+    def refresh_items(self):
+        scene = self.target_scene()
+        items = []
+        if scene:
+            try:
+                raw = self.request("GetSceneItemList", {"sceneName": scene}).get("sceneItems", [])
+            except ObsError:
+                raw = []
+            for it in sorted(raw, key=lambda i: -i.get("sceneItemIndex", 0)):   # top layer first
+                items.append({"id": it["sceneItemId"], "name": it["sourceName"], "index": it.get("sceneItemIndex"),
+                              "kind": it.get("inputKind") or ("group" if it.get("isGroup") else "scene"),
+                              "enabled": it.get("sceneItemEnabled", True), "locked": it.get("sceneItemLocked", False),
+                              "group": bool(it.get("isGroup"))})
+        with self.lock:
+            self.state["items"] = items
+            self.state["items_scene"] = scene
+
+    def enforce_pins(self, scene):
+        """Keep 'always at bottom' sources at the bottom and 'always on top' ones on top of this scene."""
+        pins = self.config.get("pins") or {}
+        if not scene or not pins:
+            return
+        try:
+            items = sorted(self.request("GetSceneItemList", {"sceneName": scene}).get("sceneItems", []),
+                           key=lambda i: i.get("sceneItemIndex", 0))
+        except ObsError:
+            return
+        bottom = [i for i in items if pins.get(i["sourceName"]) == "bottom"]
+        top = [i for i in items if pins.get(i["sourceName"]) == "top"]
+        middle = [i for i in items if i not in bottom and i not in top]
+        desired = bottom + middle + top
+        if [i["sceneItemId"] for i in desired] == [i["sceneItemId"] for i in items]:
+            return
+        for pos, it in enumerate(desired):   # ascending positions = insertion sort, ends in the desired order
+            self.request("SetSceneItemIndex", {"sceneName": scene, "sceneItemId": it["sceneItemId"],
+                                               "sceneItemIndex": pos})
+
+    def set_pin(self, name, where):
+        pins = dict(self.config.get("pins") or {})
+        if where in ("top", "bottom"):
+            pins[name] = where
+        else:
+            pins.pop(name, None)
+        self.config.update(pins=pins)
+        for scene in self.state.get("scenes", []):
+            try:
+                names = {i["sourceName"] for i in
+                         self.request("GetSceneItemList", {"sceneName": scene}).get("sceneItems", [])}
+            except ObsError:
+                continue
+            if name in names:
+                self.enforce_pins(scene)
+
+    def item_action(self, b):
+        scene = b.get("scene") or self.target_scene()
+        items = self.request("GetSceneItemList", {"sceneName": scene}).get("sceneItems", [])
+        it = next((i for i in items if i["sceneItemId"] == b.get("id")), None)
+        if not it:
+            raise ObsError("That source isn't in this scene any more.")
+        a, ref = b.get("action"), {"sceneName": scene, "sceneItemId": it["sceneItemId"]}
+        if a == "visible":
+            self.request("SetSceneItemEnabled", {**ref, "sceneItemEnabled": bool(b.get("value"))})
+        elif a == "lock":
+            self.request("SetSceneItemLocked", {**ref, "sceneItemLocked": bool(b.get("value"))})
+        elif a in ("up", "down", "top", "bottom"):
+            n = len(items)
+            cur = it["sceneItemIndex"]
+            new = {"up": min(n - 1, cur + 1), "down": max(0, cur - 1), "top": n - 1, "bottom": 0}[a]
+            self.request("SetSceneItemIndex", {**ref, "sceneItemIndex": new})
+            self.enforce_pins(scene)
+        elif a == "remove":
+            self.request("RemoveSceneItem", ref)
+        elif a == "pin":
+            self.set_pin(it["sourceName"], b.get("value"))
+        elif a in ("properties", "filters"):
+            if it.get("inputKind") is None:
+                raise ObsError("Scenes and groups don't have their own properties here. Use OBS's Sources panel.")
+            self.request("OpenInputPropertiesDialog" if a == "properties" else "OpenInputFiltersDialog",
+                         {"inputName": it["sourceName"]})
+        else:
+            raise ObsError("Unknown action.")
+        self.refresh_items()
+        self.push_state()
+
+    ADD_KINDS = [  # menu entry, input kind prefix, default name
+        ("Image", "image_source", "Image"),
+        ("Media file (video / music)", "ffmpeg_source", "Media"),
+        ("Browser (alerts, widgets, web page)", "browser_source", "Browser"),
+        ("Text", "text_gdiplus", "Text"),
+        ("Color block", "color_source", "Color"),
+        ("Image slideshow", "slideshow", "Slideshow"),
+        ("Camera / capture card", "dshow_input", "Camera"),
+        ("Window", "window_capture", "Window"),
+        ("Whole display", "monitor_capture", "Display"),
+        ("Microphone / audio input", "wasapi_input_capture", "Audio Input"),
+        ("App audio", "wasapi_process_output_capture", "App Audio"),
+    ]
+
+    def add_menu(self):
+        kinds = self.request("GetInputKindList", {"unversioned": False}).get("inputKinds", [])
+        menu = []
+        for label, prefix, _ in self.ADD_KINDS:
+            k = next((k for k in kinds if k == prefix or k.startswith(prefix + "_v")), None)
+            if k:
+                menu.append({"label": label, "kind": k})
+        existing = [i["inputName"] for i in self.request("GetInputList").get("inputs", [])]
+        return {"kinds": menu, "existing": sorted(existing, key=str.lower),
+                "scenes": list(self.state.get("scenes", [])), "scene": self.target_scene()}
+
+    def add_source(self, b):
+        scenes = self._scenes_for(b.get("scene"))
+        scene = scenes[0]
+        if b.get("existing"):
+            src = b["existing"]
+            added = self._add_to_scenes(src, scenes)
+            if not added:
+                raise ObsError(f"'{src}' is already there.")
+            return {"name": src, "scenes": added}
+        kind = b.get("kind") or ""
+        base = next((n for _, p, n in self.ADD_KINDS if kind == p or kind.startswith(p + "_v")), None)
+        if not base:
+            raise ObsError("That kind of source isn't in the list.")
+        name = self._unique_name(base)
+        self.request("CreateInput", {"sceneName": scene, "inputName": name, "inputKind": kind,
+                                     "inputSettings": {}, "sceneItemEnabled": True})
+        self.enforce_pins(scene)
+        added = [scene] + self._add_to_scenes(name, scenes[1:])
+        try:
+            self.request("OpenInputPropertiesDialog", {"inputName": name})   # set it up in OBS's own window
+        except ObsError:
+            pass
+        return {"name": name, "scenes": added}
+
     # ----- one-click helpers: games, Discord, screen regions
     def _unique_name(self, base):
         names = {i["inputName"] for i in self.request("GetInputList").get("inputs", [])}
@@ -1326,29 +1480,50 @@ class ObsLink:
         return {"running": bool(wins), "window": wins[0]["window"] if wins else "", "sources": srcs,
                 "scene": self.target_scene()}
 
+    ALL_SCENES = "__all__"
+
+    def _scenes_for(self, choice):
+        """A scene name, or every scene for the 'All scenes' choice."""
+        if choice == self.ALL_SCENES:
+            return list(self.state.get("scenes", []))
+        return [self.target_scene(choice)]
+
+    def _add_to_scenes(self, src, scenes):
+        added = []
+        for sc in scenes:
+            if sc == src:
+                continue
+            names = {i["sourceName"] for i in self.request("GetSceneItemList", {"sceneName": sc}).get("sceneItems", [])}
+            if src not in names:
+                self.request("CreateSceneItem", {"sceneName": sc, "sourceName": src})
+                self.enforce_pins(sc)
+                added.append(sc)
+        return added
+
     def add_discord(self, b):
         st = self.discord_status()
-        scene = self.target_scene(b.get("scene"))
+        scenes = self._scenes_for(b.get("scene"))
+        # match Discord by its program: title first, otherwise any Discord window. Works even if Discord
+        # isn't open yet (it starts capturing as soon as Discord runs).
+        window = st["window"] or "Discord:Chrome_WidgetWin_1:Discord.exe"
         for s in st["sources"]:  # fix matching on every Discord source
-            fix = {"priority": 2}
-            if st["window"]:
-                fix["window"] = st["window"]
-            self.request("SetInputSettings", {"inputName": s["name"], "inputSettings": fix})
+            self.request("SetInputSettings", {"inputName": s["name"], "inputSettings": {"priority": 2,
+                                                                                         "window": window}})
+        created = False
         if st["sources"]:
-            src = st["sources"][0]
-            if scene not in src["scenes"]:
-                self.request("CreateSceneItem", {"sceneName": scene, "sourceName": src["name"]})
-                return {"name": src["name"], "scene": scene, "added": True}
-            return {"name": src["name"], "scene": scene, "added": False}
-        if not st["window"]:
-            raise ObsError("Open Discord first, then try again.")
-        name = self._unique_name("Discord")
-        self.request("CreateInput", {"sceneName": scene, "inputName": name,
-                                     "inputKind": "wasapi_process_output_capture",
-                                     "inputSettings": {"window": st["window"], "priority": 2},
-                                     "sceneItemEnabled": True})
-        self._set_tracks(name, {1, self._track_for("Discord", 4)})
-        return {"name": name, "scene": scene, "added": True, "created": True}
+            name = st["sources"][0]["name"]
+        else:
+            name = self._unique_name("Discord")
+            self.request("CreateInput", {"sceneName": scenes[0], "inputName": name,
+                                         "inputKind": "wasapi_process_output_capture",
+                                         "inputSettings": {"window": window, "priority": 2},
+                                         "sceneItemEnabled": True})
+            self._set_tracks(name, {1, self._track_for("Discord", 4)})
+            created = True
+        added = self._add_to_scenes(name, scenes)
+        if created and scenes[0] not in added:
+            added.insert(0, scenes[0])
+        return {"name": name, "scenes": added, "created": created, "running": st["running"]}
 
     def add_region(self, b):
         """Run the drag-to-select overlay, then add (or update) a cropped Display Capture."""

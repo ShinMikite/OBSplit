@@ -962,7 +962,7 @@ def obs_watchdog():
 # --------------------------------------------------------------------------- HTTP
 
 PAGES = {"/": "setup.html", "/setup": "setup.html", "/chat": "chat.html", "/info": "info.html",
-         "/stats": "stats.html", "/scenes": "scenes.html", "/audio": "audio.html"}
+         "/stats": "stats.html", "/scenes": "scenes.html", "/audio": "audio.html", "/sources": "sources.html"}
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
 
@@ -1051,6 +1051,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"regions": APP.obs.region_sources(), "scene": APP.obs.target_scene()})
                     if p == "/api/obs/mic":
                         return self.send_json(APP.obs.mic_info((qs.get("name") or [""])[0]))
+                    if p == "/api/obs/addmenu":
+                        return self.send_json(APP.obs.add_menu())
                 except obslink.ObsError as e:
                     return self.send_json({"error": str(e)}, 400)
             if p == "/api/ping":
@@ -1205,7 +1207,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     ev = q.get(timeout=15)
                     if ev.get("type") == "thumb" and not want_thumbs:
                         continue
-                    if ev.get("type") in ("meters", "mix") and want_thumbs:
+                    if ev.get("type") in ("meters", "mix") and view != "audio":
                         continue
                     self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n")
                 except queue.Empty:
@@ -1324,6 +1326,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         return self.send_json({"ok": True, **APP.obs.add_region(b)})
                     elif p == "/api/obs/mix":
                         return self.send_json({"ok": True, "auto": APP.obs.set_mix(b)})
+                    elif p == "/api/obs/item":
+                        APP.obs.item_action(b)
+                    elif p == "/api/obs/add-source":
+                        return self.send_json({"ok": True, **APP.obs.add_source(b)})
                     elif p == "/api/obs/mic":
                         APP.obs.mic_set(b)
                         return self.send_json({"ok": True, **APP.obs.mic_info(b.get("name"))})

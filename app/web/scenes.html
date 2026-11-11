@@ -45,9 +45,6 @@
 <div class="bar">
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <span id="mode" class="muted small grow" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
-  <button id="addGame" title="Add a running game (picture + sound) to the current scene">＋ Game</button>
-  <button id="addDiscord" title="Add Discord voice audio to the current scene">＋ Discord</button>
-  <button id="addRegion" title="Drag a box on your screen to capture that area">＋ Screen region</button>
   <button id="go" class="primary" hidden title="Switch to the green preview scene">Transition ▶</button>
 </div>
 <div id="grid"></div>
@@ -125,111 +122,6 @@ function updateThumb(scene, th) {
   if (img && !th.stale && !c.querySelector('.note')) { img.src = th.img; return; }
   fillThumb(c, scene);
 }
-
-// ---------- one-click add: Game / Discord / Screen region
-function modal(title) {
-  const bg = el('div', 'modal-bg'), m = el('div', 'modal');
-  bg.onclick = e => { if (e.target === bg) bg.remove(); };
-  const h = el('h3', null, title); m.appendChild(h);
-  bg.appendChild(m); document.body.appendChild(bg);
-  const close = () => bg.remove();
-  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
-  return { m, close };
-}
-function sceneSelect(scenes, cur) {
-  const s = el('select'); for (const n of scenes) { const o = el('option', null, n); o.value = n; s.appendChild(o); }
-  s.value = cur; return s;
-}
-
-$('#addGame').onclick = async function openGame() {
-  let d; try { d = await api('/api/obs/windows'); } catch (e) { return toast(e.message, true); }
-  const { m, close } = modal('Add a game');
-  const r1 = el('div', 'row2'); r1.append(el('span', null, 'Scene:'));
-  const sc = sceneSelect(d.scenes, d.scene); r1.append(sc);
-  const games = d.games.filter(g => g.mode === 'window');
-  let replaceSel = null;
-  if (games.length) {
-    r1.append(el('span', null, 'Add as:'));
-    replaceSel = el('select');
-    replaceSel.appendChild(Object.assign(el('option', null, 'a new game source'), { value: '' }));
-    for (const g of games) replaceSel.appendChild(Object.assign(el('option', null, 'switch "' + g.name + '" (' + (g.exe || 'none') + ')'), { value: g.name }));
-    r1.append(replaceSel);
-  }
-  const refresh = el('button', null, '⟳'); refresh.title = 'Refresh the list'; refresh.onclick = () => { close(); openGame(); };
-  r1.append(refresh); m.appendChild(r1);
-  const list = el('div', 'pick');
-  const add = (w) => {
-    const b = el('button'); b.append(el('b', null, w.title), el('small', null, w.exe + (w.fullscreen ? ' · fullscreen' : '')));
-    b.onclick = async () => {
-      b.disabled = true;
-      try {
-        const r = await api('/api/obs/add-game', { window: w.window, title: w.title, scene: sc.value, replace: replaceSel ? replaceSel.value : '' });
-        toast(r.replaced ? '"' + r.name + '" now captures ' + w.exe : 'Added "' + r.name + '" (picture + sound) to ' + r.scene); close();
-      } catch (e) { toast(e.message, true); b.disabled = false; }
-    };
-    list.appendChild(b);
-  };
-  const g = d.windows.filter(w => w.game), other = d.windows.filter(w => !w.game);
-  list.appendChild(el('div', 'sec', g.length ? 'Games' : 'No games detected. Start your game, then click ⟳'));
-  g.forEach(add);
-  if (other.length) {
-    const t = el('div', 'sec', '▸ Other windows (' + other.length + ')'); t.style.cursor = 'pointer';
-    t.onclick = () => { t.remove(); list.appendChild(el('div', 'sec', 'Other windows')); other.forEach(add); };
-    list.appendChild(t);
-  }
-  m.appendChild(list);
-  m.appendChild(el('div', 'muted small', 'Adds one Game Capture with sound included, fitted to the screen, on Stream + the Game recording track. It follows the game even if its window title changes.'));
-};
-
-$('#addDiscord').onclick = async () => {
-  let d; try { d = await api('/api/obs/discord'); } catch (e) { return toast(e.message, true); }
-  const { m, close } = modal('Discord audio');
-  const s1 = el('div', 'row2');
-  s1.append(el('span', d.running ? 'ok' : 'warn', d.running ? '● Discord is running' : '● Discord isn\'t running'));
-  m.appendChild(s1);
-  if (d.sources.length) {
-    for (const s of d.sources) {
-      const r = el('div', 'row2');
-      r.append(el('b', null, s.name));
-      r.append(el('span', 'muted', s.scenes.length ? 'in: ' + s.scenes.join(', ') : 'not in any scene'));
-      r.append(el('span', s.priority === 2 ? 'ok' : 'warn', s.priority === 2 ? '✓ matched to Discord' : '⚠ can grab other apps (fixed when you click below)'));
-      m.appendChild(r);
-    }
-  } else m.appendChild(el('div', 'muted', 'No Discord audio source yet.'));
-  const r2 = el('div', 'row2'); r2.append(el('span', null, 'Scene:'));
-  const sc = sceneSelect(st.scenes, d.scene); r2.append(sc); m.appendChild(r2);
-  const btn = el('button', 'primary', d.sources.length ? 'Add to scene / fix' : 'Add Discord audio');
-  btn.onclick = async () => {
-    btn.disabled = true;
-    try {
-      const r = await api('/api/obs/discord', { scene: sc.value });
-      toast(r.created ? 'Added "' + r.name + '" to ' + r.scene : r.added ? '"' + r.name + '" added to ' + r.scene : '"' + r.name + '" is already in ' + r.scene + ' (matching fixed)');
-      close();
-    } catch (e) { toast(e.message, true); btn.disabled = false; }
-  };
-  m.appendChild(btn);
-  m.appendChild(el('div', 'muted small', 'Uses one Discord source everywhere (added to other scenes as a copy that shares settings), on Stream + the Discord recording track.'));
-};
-
-async function pickRegion(scene, replace) {
-  toast('Drag a box on your screen (or click a window). Esc cancels.');
-  try {
-    const r = await api('/api/obs/region', { scene, replace });
-    if (r.cancelled) return toast('Cancelled');
-    toast((replace ? 'Updated "' : 'Added "') + r.name + '" (' + r.w + '×' + r.h + ') to ' + r.scene);
-  } catch (e) { toast(e.message, true); }
-}
-$('#addRegion').onclick = async () => {
-  let d; try { d = await api('/api/obs/regions'); } catch (e) { return toast(e.message, true); }
-  if (!d.regions.length) return pickRegion(d.scene, '');
-  const { m, close } = modal('Screen region');
-  const b = el('button', 'primary', '＋ New region in ' + d.scene); b.onclick = () => { close(); pickRegion(d.scene, ''); };
-  m.appendChild(b);
-  m.appendChild(el('div', 'sec', 'Or re-select an existing one'));
-  const list = el('div', 'pick');
-  for (const n of d.regions) { const x = el('button'); x.append(el('b', null, n), el('small', null, 'drag a new area')); x.onclick = () => { close(); pickRegion(d.scene, n); }; list.appendChild(x); }
-  m.appendChild(list);
-};
 
 (function open() {
   const es = new EventSource('/obs-events?view=scenes');
