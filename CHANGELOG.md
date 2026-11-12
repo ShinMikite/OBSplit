@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (2026-11-11)
+
+- **Smoother updates:** the installer checks that OBS is closed before changing anything ("Close OBS, then click Retry") and makes sure OBSplit's helper has stopped, so Windows never asks to close a program partway through. Quiet installs skip the "connected" message.
+
 ## 0.2.1 (2026-11-11)
 
 - **Switching between YouTube and Twitch also switches stream quality**, using the choice you made for each platform (for example H.264 at Twitch's limits, AV1 for YouTube). Never while you're live.
