@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-11)
 
 - **Controls+** (new panel): Go Live says where it goes and what viewers will see; a check before going live with one-click fixes (Twitch test mode, muted mic, OBS pointed at the wrong platform, no YouTube stream for your key, Private stream, restart needed); a row per platform while live with its own Stop and Stop all; recording, Virtual Camera and Studio Mode.
 - **Stream to YouTube and Twitch at the same time** with the new **YouTube + Twitch** button, each with its own settings (for example AV1 at 10 Mbps for YouTube and H.264 at 6 Mbps for Twitch). No Restream and no plugin: YouTube uses OBS's own stream and OBSplit adds a second one through OBS's built-in scripting. **Start Streaming** starts both; Controls+ has a **Stop** button for each.

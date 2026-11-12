@@ -51,7 +51,7 @@ WEB_DIR = os.path.join(APP_DIR, "web")
 DATA_DIR = os.path.join(APP_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 HOST, PORT = "127.0.0.1", 47821
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
