@@ -321,13 +321,18 @@ async function loadTwitch() {
     try { tw = { ...tw, ...(await api('/api/tw/channel', vals())) }; fillTw(); twDirty(); toast('Saved to Twitch'); $('#saved').textContent = 'Saved ' + fmtTime(Date.now()); }
     catch (e) { toast(e.message, true); twDirty(); }
   };
+  // The Twitch button already points OBS at Twitch; only offer a fix when OBS ended up somewhere else
+  // (Twitch connected after switching, or OBS's stream settings changed by hand).
   const kb = $('#twKey');
-  kb.appendChild(el('div', 'sec', 'Stream key (what OBS sends to)'));
-  kb.appendChild(el('div', tw.key_in_obs ? 'ok' : 'warn', tw.key_in_obs ? 'OBS is set to stream to Twitch.' : 'OBS isn\'t set to your Twitch stream key yet.'));
-  const use = el('button', null, tw.key_in_obs ? 'Put my Twitch key in OBS again' : 'Use my Twitch key in OBS');
-  use.title = 'Puts your Twitch stream key into OBS (Settings → Stream). The key goes from Twitch straight into OBS.';
-  use.onclick = async () => { use.disabled = true; try { await api('/api/tw/use-key', {}); toast('OBS now streams to Twitch'); loadTwitch(); } catch (e) { toast(e.message, true); use.disabled = false; } };
-  use.style.marginTop = '6px'; kb.appendChild(use);
+  if (tw.key_in_obs) {
+    kb.className = 'muted small'; kb.textContent = 'Start Streaming in OBS goes to Twitch.';
+  } else {
+    kb.appendChild(el('div', 'warn', 'OBS isn\'t set to stream to Twitch.'));
+    const use = el('button', null, 'Use my Twitch key in OBS');
+    use.title = 'Puts your Twitch stream key into OBS (Settings → Stream). The key goes from Twitch straight into OBS.';
+    use.onclick = async () => { use.disabled = true; try { await api('/api/tw/use-key', {}); toast('OBS now streams to Twitch'); loadTwitch(); } catch (e) { toast(e.message, true); use.disabled = false; } };
+    use.style.marginTop = '6px'; kb.appendChild(use);
+  }
 }
 
 function setMode(platform) {
