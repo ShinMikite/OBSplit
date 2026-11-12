@@ -49,7 +49,7 @@ WEB_DIR = os.path.join(APP_DIR, "web")
 DATA_DIR = os.path.join(APP_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 HOST, PORT = "127.0.0.1", 47821
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1005,6 +1005,53 @@ class StatsWorker(threading.Thread):
         self.hub.stats = out
 
 
+# --------------------------------------------------------------------------- update notice
+
+RELEASES_API = "https://api.github.com/repos/ShinMikite/OBSplit/releases/latest"
+RELEASES_PAGE = "https://github.com/ShinMikite/OBSplit/releases/latest"
+UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
+
+
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3]) or (0,)
+
+
+def check_for_update(current=VERSION):
+    """Asks GitHub for the newest release (one small request). Returns the update info, or None if up to date."""
+    req = urllib.request.Request(RELEASES_API, headers={"User-Agent": "OBSplit/" + current,
+                                                         "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        rel = json.load(r)
+    latest = (rel.get("tag_name") or "").lstrip("v")
+    if not latest or rel.get("draft") or rel.get("prerelease") or version_tuple(latest) <= version_tuple(current):
+        return None
+    notes = [ln.strip("-* ").strip() for ln in (rel.get("body") or "").splitlines()
+             if ln.strip().startswith(("-", "*")) and "SHA-256" not in ln]
+    return {"version": latest, "url": rel.get("html_url") or RELEASES_PAGE, "notes": notes[:6]}
+
+
+def update_loop():
+    """Shortly after starting, then once a day."""
+    time.sleep(30)
+    while True:
+        try:
+            info = check_for_update()
+            save_json(UPDATE_FILE, {"checked": now_ms(), "update": info})
+            if info and APP:
+                for h in (APP.hub, APP.twhub):
+                    h.publish({"type": "settings"})
+        except Exception as e:
+            log("update check failed", repr(e)[:120])
+        time.sleep(24 * 3600)
+
+
+def update_info():
+    info = (load_json(UPDATE_FILE, {}) or {}).get("update")
+    if not info or version_tuple(info.get("version")) <= version_tuple(VERSION):
+        return None
+    return {**info, "dismissed": APP.config.get("update_dismissed") == info.get("version")}
+
+
 def obs_watchdog():
     """When started by OBS, exit after OBS closes."""
     misses = 0
@@ -1242,6 +1289,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             c["channel_title"] = tw["name"] or tw["channel"] or ""
             c["channel_handle"] = tw["login"] or tw["channel"] or ""
         return {"status": APP.cur_hub().status, "config": c, "platform": plat, "twitch": tw,
+                "version": VERSION, "update": update_info(),
                 "has_client": APP.google.client() is not None, "yt_connected": APP.google.connected(),
                 "connected": APP.cur_connected(), "quota": APP.quota.used()}
 
@@ -1457,7 +1505,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if p == "/api/settings":
                 b = self.jbody()
                 allowed = {k: b[k] for k in ("highlight_words", "font_size", "show_timestamps", "show_avatars",
-                                             "timeout_default", "channel_id") if k in b}
+                                             "timeout_default", "channel_id", "update_dismissed") if k in b}
                 if "watch_override" in b:
                     w = (b["watch_override"] or "").strip()
                     if w and not extract_video_id(w):
@@ -1541,7 +1589,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json({"ok": True, **r, "status": APP.quality.status()})
             if p == "/api/open":
                 url = self.jbody().get("url") or ""
-                if not re.match(r"^https://(console\.cloud\.google\.com|studio\.youtube\.com|www\.youtube\.com|www\.twitch\.tv)/", url):
+                if not re.match(r"^https://(console\.cloud\.google\.com|studio\.youtube\.com|www\.youtube\.com|www\.twitch\.tv|"
+                                r"github\.com/ShinMikite/OBSplit/releases)/?", url):
                     raise ApiError(400, "That link can't be opened from here.")
                 webbrowser.open(url)
                 return self.send_json({"ok": True})
@@ -1750,6 +1799,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not APP.twitch.connected():
                     return "Connect Twitch in OBSplit Setup so OBS can stream to Twitch."
                 APP.twitch.use_stream_key()
+                try:
+                    if APP.quality.current()["codec"] != "h264":
+                        return ("OBS now streams to Twitch. Twitch needs H.264: apply it in OBSplit Setup → Stream quality "
+                                "(then restart OBS) before going live.")
+                except Exception:
+                    pass
                 return "OBS now streams to Twitch."
             sid = APP.config.get("yt_stream_id") or (APP.config.get("last_broadcast") or {}).get("streamId")
             if not APP.google.connected():
@@ -1913,6 +1968,7 @@ def main():
     if "--with-obs" in sys.argv:
         threading.Thread(target=obs_watchdog, daemon=True, name="watchdog").start()
     threading.Thread(target=heartbeat, daemon=True, name="heartbeat").start()
+    threading.Thread(target=update_loop, daemon=True, name="updates").start()
     open(READY_FILE, "w").close()
     log(f"listening on http://{HOST}:{PORT}")
     httpd.serve_forever()

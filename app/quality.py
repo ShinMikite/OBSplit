@@ -398,17 +398,27 @@ class Quality:
         with self.lock:
             d = dict(self.d)
         issues = []
+        plans = {k: self.plan(k, cur) for k in PRESETS} if cur else {}
+        preset = d.get("preset")
         if cur:
+            site = "Twitch" if self.platform() == "twitch" else "YouTube"
             if cur["color_range"].lower() == "full":
-                issues.append("Color range is Full. YouTube expects Limited, so dark and bright areas can look wrong.")
+                issues.append(f"Color range is Full. {site} expects Limited, so dark and bright areas can look wrong.")
             if cur["keyint"] not in (None, 0, 1, 2, "1", "2") or cur["keyint"] in (0, "0"):
-                issues.append("Keyframes aren't every 2 seconds, which YouTube asks for.")
+                issues.append(f"Keyframes aren't every 2 seconds, which {site} asks for.")
             if cur["rate_control"] != "CBR":
-                issues.append("Bitrate isn't constant (CBR), which YouTube asks for.")
+                issues.append(f"Bitrate isn't constant (CBR), which {site} asks for.")
+            if site == "Twitch" and cur["codec"] != "h264":
+                issues.append(f"Twitch only takes H.264 from OBS, but OBS is set to {CODEC_NAMES[cur['codec']]}. "
+                              "Apply a choice below (then restart OBS) before streaming to Twitch.")
+            # a choice applied for the other platform doesn't count as "in use" here
+            p = plans.get(preset)
+            if p and (p["encoder"] != cur["encoder"] or (cur["bitrate"] or 0) > p["bitrate"]):
+                preset = None
         return {"error": err, "busy": busy, "current": cur, "issues": issues,
                 "current_label": self._describe(cur) if cur else "",
-                "plans": {k: self.plan(k, cur) for k in PRESETS} if cur else {},
-                "preset": d.get("preset"), "upload_kbps": d.get("upload_kbps"), "upload_at": d.get("upload_at"),
+                "plans": plans,
+                "preset": preset, "upload_kbps": d.get("upload_kbps"), "upload_at": d.get("upload_at"),
                 "upload_source": d.get("upload_source") or ("test" if d.get("upload_kbps") else None),
                 "auto": d.get("auto", True), "has_backup": bool(d.get("backup")),
                 "restart_needed": restart, "report": d.get("report"),

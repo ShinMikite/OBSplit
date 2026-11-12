@@ -61,6 +61,7 @@ Chat+, Stream Info and Stats+ have a **YouTube** and a **Twitch** button at the 
 ### OBSplit Setup
 - Connecting YouTube (one-time setup, see below) or Twitch (enter a short code), and the channel to read chat from before you connect.
 - **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. With Twitch selected it uses Twitch's limits instead (H.264, up to 6 Mbps at 1080p). OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed with M-Lab's open speed test (or type in your speed from any test) so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. Switching the video format takes effect the next time OBS starts.
+- **Update notice:** when a newer OBSplit is released, Setup shows what's new and a **Download** button. Close OBS and run the new installer; your panels, layout, sign-ins and settings are kept.
 - **Lock my panel layout:** arrange your panels, click Lock, and close OBS once. From then on OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a crash, a reset or a connected account's separate layout. **Update my saved layout** after rearranging on purpose.
 
 ### Auto Audio Setup (OBS script)
@@ -108,7 +109,7 @@ Each user brings their own key, so everyone gets their own free daily allowance 
 
 ## Privacy
 
-- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, Twitch (when you use the Twitch features), and to [M-Lab](https://www.measurementlab.net/)'s open speed test only when you click **Test my upload** (10 seconds of random data to a nearby M-Lab server). M-Lab publishes every test result, including your IP address, as public research data; if you'd rather not, type your upload speed in instead.
+- Everything runs on your PC, on `127.0.0.1`. Nothing is sent anywhere except to YouTube and Google, Twitch (when you use the Twitch features), GitHub (once a day, to check for a new OBSplit version), and to [M-Lab](https://www.measurementlab.net/)'s open speed test only when you click **Test my upload** (10 seconds of random data to a nearby M-Lab server). M-Lab publishes every test result, including your IP address, as public research data; if you'd rather not, type your upload speed in instead.
 - Chat is read from YouTube's public live-chat page, the same way the pop-out chat works.
 - Your YouTube stream key goes from YouTube straight into OBS's own stream settings. OBSplit never shows it or saves it anywhere else.
 - Your sign-in, settings and chat history are stored in `%LOCALAPPDATA%\OBSplit\app\data`. The uninstaller asks whether to delete them.

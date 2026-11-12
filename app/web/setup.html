@@ -41,6 +41,8 @@
 <body>
 <div class="bar"><span id="plat"></span><b>OBSplit setup</b><span class="grow"></span><span id="pill" class="pill"><span class="dot"></span>…</span></div>
 <div id="main">
+  <div id="update" class="box small" hidden style="border-color:var(--accent);margin-top:10px"></div>
+
   <h2><span id="c6" class="chk">1</span> Stream quality</h2>
   <div class="box small" id="quality">Loading…</div>
 
@@ -158,7 +160,29 @@ function drawTwitch() {
   }
 }
 
+// A newer OBSplit on GitHub: say so, with a Download button (the installer keeps your panels and settings)
+function drawUpdate() {
+  const u = st.update, box = $('#update');
+  box.hidden = !u || u.dismissed;
+  if (box.hidden) return;
+  box.innerHTML = '';
+  box.appendChild(el('b', null, 'OBSplit ' + u.version + ' is available'));
+  box.appendChild(el('span', 'muted', ' (you have ' + (st.version || '?') + ')'));
+  if (u.notes && u.notes.length) {
+    const ul = el('ul'); ul.style.margin = '6px 0'; ul.style.paddingLeft = '18px';
+    for (const n of u.notes) ul.appendChild(el('li', null, n.replace(/\*\*/g, '')));
+    box.appendChild(ul);
+  }
+  const r = el('div', 'row-flex');
+  const dl = el('button', 'primary', 'Download'); dl.onclick = () => open(u.url);
+  const later = el('button', null, 'Later');
+  later.onclick = () => api('/api/settings', { update_dismissed: u.version }).then(() => { box.hidden = true; }).catch(e => toast(e.message, true));
+  r.append(dl, later); box.appendChild(r);
+  box.appendChild(el('div', 'qnote', 'Close OBS, then run the downloaded installer. Your panels, layout, sign-ins and settings are kept.'));
+}
+
 function draw() {
+  drawUpdate();
   const twitch = st.platform === 'twitch';
   platformSwitch($('#plat'), st.platform || 'youtube');
   $('#twSteps').hidden = !twitch; $('#ytSteps').hidden = twitch;
