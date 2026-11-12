@@ -399,7 +399,7 @@ class Quality:
             d = dict(self.d)
         issues = []
         plans = {k: self.plan(k, cur) for k in PRESETS} if cur else {}
-        preset = d.get("preset")
+        preset = (d.get("preset_by") or {}).get(self.platform()) or d.get("preset")
         if cur:
             site = "Twitch" if self.platform() == "twitch" else "YouTube"
             if cur["color_range"].lower() == "full":
@@ -501,9 +501,38 @@ class Quality:
         restart = self.restart_needed()
         with self.lock:
             self.d.update(preset=preset, applied=plan, adjusted_kbps=None, applied_at=time.strftime("%Y-%m-%d %H:%M"))
+            self.d.setdefault("preset_by", {})[self.platform()] = preset    # remembered per platform
             _save(self.d)
         self.log("stream quality applied", plan["summary"], "(restart OBS to switch encoder)" if restart else "")
         return {"plan": plan, "restart_needed": restart}
+
+    def follow_platform(self):
+        """After switching YouTube / Twitch: apply that platform's stream quality (the choice used there before, or
+        Recommended). Only if Stream quality is in use, or OBS's video format doesn't work on the new platform.
+        Never while live. Returns a short note, or None if nothing changed."""
+        try:
+            if self.busy():
+                return None
+            cur = self.current()
+        except (QualityError, obslink.ObsError):
+            return None
+        plat = self.platform()
+        incompatible = plat == "twitch" and cur["codec"] != "h264"
+        if not (self.d.get("backup") or incompatible):
+            return None
+        preset = (self.d.get("preset_by") or {}).get(plat) or self.d.get("preset") or "recommended"
+        plan = self.plan(preset, cur)
+        if (not incompatible and plan["encoder"] == cur["encoder"] and cur["bitrate"] == plan["bitrate"]
+                and cur["output"][1] == plan["height"] and cur["color_range"].lower() != "full"):
+            with self.lock:
+                self.d["preset"] = preset
+                _save(self.d)
+            return None
+        r = self.apply(preset)
+        note = "Stream quality: " + r["plan"]["summary"] + "."
+        if r["restart_needed"]:
+            note += " Restart OBS to finish switching the video format (OBSplit Setup has a button)."
+        return note
 
     def undo(self):
         b = self.d.get("backup")
@@ -533,7 +562,7 @@ class Quality:
             self._set_param("Video", k, val)
         restart = self.restart_needed()
         with self.lock:
-            self.d.update(backup=None, preset=None, applied=None, adjusted_kbps=None)
+            self.d.update(backup=None, preset=None, applied=None, adjusted_kbps=None, preset_by={})
             _save(self.d)
         self.log("stream quality: put back the settings from", b.get("at"))
         return {"restart_needed": restart}

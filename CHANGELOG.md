@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (2026-11-11)
+
+- **Switching between YouTube and Twitch also switches stream quality**, using the choice you made for each platform (for example H.264 at Twitch's limits, AV1 for YouTube). Never while you're live.
+- **Restart OBS now:** when a new video format needs OBS to restart, Stream quality offers a button that closes and reopens OBS for you, keeping your panel layout.
+- The helper finishes its after-OBS work (layout lock, scene order) a few seconds after OBS closes, instead of up to a minute later.
+
 ## 0.2.0 (2026-11-11)
 
 - **Twitch support.** Chat+, Stream Info and Stats+ get a YouTube and a Twitch button; clicking one switches them (and the account part of OBSplit Setup) to that platform. Twitch chat with badges, emotes, bits, subs, gifted subs, raids and new follows, plus moderation; title, category and tags; your Twitch stream key into OBS; viewers, followers, bits and subs. Sign in with a short code at twitch.tv/activate, or read a channel's chat without signing in. Stream quality uses Twitch's limits when Twitch is selected. Switching also points OBS's stream key at that platform (never while you're live), so Start Streaming goes where you're looking. Stream quality warns when OBS is set to AV1 or HEVC while Twitch is selected (Twitch takes H.264 from OBS).

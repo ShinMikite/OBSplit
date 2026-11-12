@@ -49,7 +49,7 @@ WEB_DIR = os.path.join(APP_DIR, "web")
 DATA_DIR = os.path.join(APP_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 HOST, PORT = "127.0.0.1", 47821
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1052,29 +1052,76 @@ def update_info():
     return {**info, "dismissed": APP.config.get("update_dismissed") == info.get("version")}
 
 
+def obs_running():
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH"], capture_output=True,
+                           text=True, creationflags=0x08000000)
+        return "obs64.exe" in r.stdout.lower()
+    except Exception:
+        return True
+
+
+def after_obs_closed():
+    """OBS has finished writing its settings: put back the locked layout and apply the scene order."""
+    try:
+        layoutguard.on_obs_closed(log)
+    except Exception as e:
+        log("layout lock failed", repr(e))
+    try:
+        layoutguard.apply_scene_orders(APP.config.get("scene_orders") or {}, log)
+    except Exception as e:
+        log("scene order failed", repr(e))
+
+
+RESTARTING = threading.Event()   # OBSplit is restarting OBS itself: the watchdog stays out of the way
+
+
 def obs_watchdog():
-    """When started by OBS, exit after OBS closes."""
+    """When started by OBS: a few seconds after OBS has closed, look after the layout and exit."""
     misses = 0
     while True:
-        time.sleep(30)
-        try:
-            r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH"], capture_output=True,
-                               text=True, creationflags=0x08000000)
-            running = "obs64.exe" in r.stdout.lower()
-        except Exception:
-            running = True
-        misses = 0 if running else misses + 1
-        if misses >= 2:
+        time.sleep(2)
+        if RESTARTING.is_set():
+            misses = 0
+            continue
+        misses = 0 if obs_running() else misses + 1
+        if misses >= 2 and not obs_running():      # gone for two checks, and not reopened just now
             log("OBS closed; exiting")
-            try:
-                layoutguard.on_obs_closed(log)   # save or put back the locked panel layout
-            except Exception as e:
-                log("layout lock failed", repr(e))
-            try:
-                layoutguard.apply_scene_orders(APP.config.get("scene_orders") or {}, log)
-            except Exception as e:
-                log("scene order failed", repr(e))
+            after_obs_closed()
             os._exit(0)
+
+
+def restart_obs():
+    """Closes OBS normally, looks after the layout, and opens it again (used after switching the video format)."""
+    RESTARTING.set()
+    try:
+        exe = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process obs64 -ErrorAction Stop).Path"],
+                             capture_output=True, text=True, creationflags=0x08000000).stdout.strip().splitlines()
+        exe = exe[0] if exe else ""
+        if not exe or not os.path.exists(exe):
+            log("restart OBS: couldn't find OBS")
+            return
+        subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process obs64).CloseMainWindow() | Out-Null"],
+                       capture_output=True, creationflags=0x08000000)
+        for _ in range(120):                      # up to a minute for OBS to finish closing
+            if not obs_running():
+                break
+            time.sleep(0.5)
+        else:
+            log("restart OBS: OBS didn't close")
+            return
+        time.sleep(1)
+        after_obs_closed()
+        subprocess.Popen([exe], cwd=os.path.dirname(exe), close_fds=True,
+                         creationflags=0x00000008 | 0x00000200)   # detached, so it outlives this helper
+        log("restarted OBS")
+        for _ in range(60):
+            if obs_running():
+                break
+            time.sleep(0.5)
+        time.sleep(5)
+    finally:
+        RESTARTING.clear()
 
 
 # --------------------------------------------------------------------------- HTTP
@@ -1531,6 +1578,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 note = None
                 if switched:
                     note = self.switch_stream_key(b["platform"])
+                    try:   # the platform's stream quality too (e.g. Twitch needs H.264)
+                        qn = APP.quality.follow_platform()
+                    except Exception as e:
+                        log("stream quality switch failed", repr(e)[:200])
+                        qn = "Stream quality couldn't be switched; check OBSplit Setup."
+                    if qn:
+                        note = (note + " " if note else "") + qn
                     # every open panel reconnects so it shows the other platform
                     for h in (APP.hub, APP.twhub):
                         h.publish({"type": "platform", "platform": b["platform"]})
@@ -1579,6 +1633,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         r = APP.quality.test_upload()
                     elif a == "set_upload":
                         r = APP.quality.set_upload(b.get("mbps"))
+                    elif a == "restart_obs":
+                        busy = APP.quality.busy()
+                        if busy:
+                            raise ApiError(400, f"Stop {busy} first, then restart OBS.")
+                        if RESTARTING.is_set():
+                            raise ApiError(400, "OBS is already restarting.")
+                        threading.Thread(target=restart_obs, daemon=True, name="restart-obs").start()
+                        return self.send_json({"ok": True})
                     elif a == "auto":
                         APP.quality.set_auto(b.get("on"))
                         r = {}
@@ -1799,12 +1861,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not APP.twitch.connected():
                     return "Connect Twitch in OBSplit Setup so OBS can stream to Twitch."
                 APP.twitch.use_stream_key()
-                try:
-                    if APP.quality.current()["codec"] != "h264":
-                        return ("OBS now streams to Twitch. Twitch needs H.264: apply it in OBSplit Setup → Stream quality "
-                                "(then restart OBS) before going live.")
-                except Exception:
-                    pass
                 return "OBS now streams to Twitch."
             sid = APP.config.get("yt_stream_id") or (APP.config.get("last_broadcast") or {}).get("streamId")
             if not APP.google.connected():

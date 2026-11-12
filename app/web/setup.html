@@ -271,7 +271,15 @@ function drawQuality() {
   head.appendChild(el('div', 'grow', 'Using: ' + q.current_label));
   if (q.has_backup) head.appendChild(qLink('Undo', () => qAct({ action: 'undo' }, 'Putting your old settings back…', d => d.restart_needed ? 'Done. Restart OBS once to finish.' : 'Your old settings are back')));
   box.appendChild(head);
-  if (q.restart_needed) box.appendChild(el('div', 'qwarn', 'Restart OBS once to finish switching to ' + (q.plans[q.preset] || {}).codec_name + '.'));
+  if (q.restart_needed) {
+    // OBS only changes its video format when it starts; restarting closes and reopens it, keeping your layout
+    const r = el('div', 'qrow');
+    r.appendChild(el('span', 'qwarn', 'OBS needs a restart to finish switching the video format.'));
+    const rb = el('button', 'primary', 'Restart OBS now'); rb.disabled = qBusy || !!q.busy;
+    rb.title = q.busy ? 'Stop ' + q.busy + ' first.' : 'Closes OBS normally and opens it again. Your layout and settings are kept.';
+    rb.onclick = () => qAct({ action: 'restart_obs' }, 'Restarting OBS… the panels come back in a few seconds');
+    r.appendChild(rb); box.appendChild(r);
+  }
   for (const i of q.issues) box.appendChild(el('div', 'qwarn', i));
 
   // the three choices side by side
