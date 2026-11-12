@@ -36,8 +36,20 @@ It isn't an OBS plugin. Everything uses features OBS already has: custom browser
   - Volumes you set for a game are remembered per game.
 - **This scene** shows only what's in the current scene (plus mic and desktop audio). Sources that can't make sound are tucked away, including videos whose soundtrack turns out to be silent.
 
+### Controls+
+- **Go live** with a button that says where it goes (YouTube, Twitch, or both) and shows what viewers will see on each: your YouTube stream's title and visibility, your Twitch title and category.
+- **A check before going live**, with one-click fixes: Twitch in test mode, a muted mic, OBS pointed at the wrong platform, no YouTube stream waiting for your key, a Private YouTube stream, or OBS needing a restart for a new video format. They're warnings, not blocks.
+- **While live:** a row per platform with a timer, a health dot and its own **Stop**, plus **Stop all**.
+- Recording (start, pause, stop), Virtual Camera and Studio Mode. OBS's own Settings window stays in OBS's Controls panel.
+
 ### YouTube and Twitch
-Chat+, Stream Info and Stats+ have a **YouTube** and a **Twitch** button at the top. Clicking one switches all three (and the account part of OBSplit Setup) to that platform, and points OBS's stream key at it, so **Start Streaming** goes where you're looking (never while you're live). Scenes+, Sources+ and Audio+ are the same for both.
+**Controls+** has a **YouTube**, a **Twitch** and a **YouTube + Twitch** button at the top. Clicking one switches Chat+, Stream Info and Stats+ (and the account part of OBSplit Setup) to that platform, and points OBS's stream key at it, so **Start Streaming** goes where you're looking (never while you're live). Scenes+, Sources+ and Audio+ are the same for both.
+
+#### YouTube + Twitch at the same time
+- Streams to both at once, **each with its own settings** (for example YouTube in AV1 at 10 Mbps and Twitch in H.264 at 6 Mbps). No Restream and no plugin: YouTube uses OBS's own stream and OBSplit adds a second one through OBS's built-in scripting.
+- **Start Streaming** starts both. **Controls+** shows each stream (live time, health, and why one stopped if it did) with a **Stop** button for each; **Stats+** shows each platform's numbers inside shared tiles.
+- **Chat+** shows both chats with a small logo on each message; send to both or just one. **Stream Info** has a tab for each.
+- **OBSplit Setup** checks first: both streams together need roughly the sum of their bitrates in upload (about 16 Mbps by default) and a graphics-card encoder. If your upload is too slow, a service like Restream, which only needs one upload, is the better choice. You can also test Twitch without broadcasting.
 
 #### YouTube
 - **Chat+**, a Chatty-style chat:
@@ -50,19 +62,19 @@ Chat+, Stream Info and Stats+ have a **YouTube** and a **Twitch** button at the 
 - **Set up a new stream without a browser (+ New):** title, description, category, tags, visibility, "go live when I press Start Streaming" or schedule for later, Made for Kids, auto-start/stop, latency and DVR, pre-filled from your last stream. It's linked to your stream key automatically, so **Start Streaming in OBS goes straight live**.
 - **Use my YouTube stream key in OBS:** one click puts your reusable YouTube stream key into OBS's stream settings (or creates one). The key goes from YouTube straight into OBS; it's never shown.
 - **Stream Info:** picks your live or next scheduled stream automatically. Edit the **title, description, category, visibility, tags and thumbnail at any time, including while live.** Drag and drop a thumbnail to upload it.
-- **Stats+:** viewers (and peak), uptime, likes, chat per minute, chatters, first-timers, Super Chat totals, new members, **stream health** with YouTube's warnings, and API usage.
+- **Stats+:** viewers (and peak), likes, chat per minute, chatters, first-timers, Super Chat totals, new members, and **stream health** with YouTube's warnings. (How long you've been live is in Controls+; API usage is in OBSplit Setup.)
 
 #### Twitch
 - **Chat+:** Twitch chat in real time with badges (broadcaster, mod, VIP, subscriber), Twitch emotes, bits, and cards for subs, gifted subs, raids and new follows. First-time chatters are tagged. Delete, time-out, ban, unban and make moderator, same as for YouTube. Chat can be read without signing in by entering a channel name.
 - **Stream Info:** change your **title, category** (with search) and **tags** at any time, including while live. **Use my Twitch key in OBS** puts your stream key into OBS without copy-pasting.
-- **Stats+:** viewers (and peak), uptime, followers (and new this session), chat per minute, chatters, bits, new subs and total subscribers.
+- **Stats+:** viewers (and peak), followers (and new this session), chat per minute, chatters, bits, new subs and total subscribers.
 - Signing in takes a few seconds: click **Connect Twitch** in OBSplit Setup and enter the code shown at twitch.tv/activate. No developer setup, and no daily limits.
 
 ### OBSplit Setup
 - Connecting YouTube (one-time setup, see below) or Twitch (enter a short code), and the channel to read chat from before you connect.
 - **Stream quality:** pick **Recommended for my PC**, **Sharper on YouTube (1440p)** or **Light (720p)** and click Apply. With Twitch selected it uses Twitch's limits instead (H.264, up to 6 Mbps at 1080p). OBSplit chooses the best video format your graphics card supports (AV1, then HEVC, then H.264), a bitrate from YouTube's own table that fits your connection, 2-second keyframes, constant bitrate, Limited color range (what YouTube expects) and OBS's automatic bitrate drop when the connection struggles. **Test my upload** measures your upload speed with M-Lab's open speed test (or type in your speed from any test) so the bitrate fits. After every stream it checks dropped frames, encoder overload and YouTube's stream health, and lowers the bitrate for next time if your connection struggled (or eases it back up after smooth streams). It only changes settings while you're not live, saves your old settings first and has an **Undo**. OBS only switches its video format when it starts, so OBSplit offers a **Restart OBS now** button that closes and reopens OBS for you, keeping your layout. Switching between YouTube and Twitch switches stream quality too, using your choice for each platform.
 - **Update notice:** when a newer OBSplit is released, Setup shows what's new and a **Download** button. Close OBS and run the new installer; your panels, layout, sign-ins and settings are kept.
-- **Lock my panel layout:** arrange your panels, click Lock, and close OBS once. From then on OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a crash, a reset or a connected account's separate layout. **Update my saved layout** after rearranging on purpose.
+- **Keep my panel layout:** arrange your panels, click **Keep my layout**, and close OBS once. After that, OBS's own **View → Docks → Lock Docks** decides what happens: while it's on, OBSplit puts your exact layout and window size back every time OBS closes, so it can't be lost to a reset or a connected account's separate layout; turn it off to rearrange, and the layout you close OBS with is kept. No extra saving needed.
 
 ### Auto Audio Setup (OBS script)
 New media, browser and capture-card sources automatically get **Monitor and Output**. New browser sources (alerts) get **Control audio via OBS**, so alert sounds actually reach your stream. Mic, desktop, game and app audio are left alone to avoid echo.
@@ -80,8 +92,8 @@ New media, browser and capture-card sources automatically get **Monitor and Outp
 1. Download **`OBSplit-Setup-x.y.z.exe`** from [Releases](https://github.com/ShinMikite/OBSplit/releases).
 2. **Close OBS**, then run the installer. No admin rights are needed; it installs to `%LOCALAPPDATA%\OBSplit`.
    Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Click **More info → Run anyway**.
-3. Start OBS. The new panels are in the **Docks** menu: **Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, OBSplit Setup**. Drag them where you like.
-4. In **OBSplit Setup**, click **Lock my panel layout** once you're happy with the arrangement, and connect YouTube if you want the YouTube features.
+3. Start OBS. The new panels are in the **Docks** menu: **Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, Controls+, OBSplit Setup**. Drag them where you like.
+4. In **OBSplit Setup**, click **Keep my layout** once you're happy with the arrangement, then turn on **View → Docks → Lock Docks** in OBS, and connect YouTube if you want the YouTube features.
 
 ### What the installer changes in OBS
 
@@ -125,7 +137,7 @@ See **[docs/xsplit-to-obs.md](docs/xsplit-to-obs.md)**: where XSplit's features 
 | Panels show **"Reconnecting…"** | Nothing to do: the helper is restarting and the launcher brings it back within about 10 seconds. If it never clears, check **Tools → Scripts** lists `obsplit-launcher.lua` and `obsplit-backup-launcher.lua`; if not, run **OBSplit - Connect to OBS** with OBS closed. |
 | Scenes+ / Sources+ / Audio+ say **"OBS offline"** | **Tools → WebSocket Server Settings**: make sure the server is enabled. |
 | Panels are missing after creating a new scene collection | Close OBS and run **OBSplit - Connect to OBS**. |
-| My panel layout keeps changing | Use **Lock my panel layout** in OBSplit Setup. |
+| My panel layout keeps changing | Use **Keep my panel layout** in OBSplit Setup and turn on **View → Docks → Lock Docks** in OBS. |
 | Game not in the + Game list | Start the game first, then click the refresh button. Games under a Steam/Epic/GOG/Xbox library or running fullscreen are listed first; everything else is under "Other windows". |
 
 ## Building from source

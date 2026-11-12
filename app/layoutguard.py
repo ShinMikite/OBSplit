@@ -1,10 +1,12 @@
 """
 Layout lock: keep the user's OBS panel layout (positions, sizes, tabs, window) exactly as they saved it.
 
-OBS only writes its layout to disk when it closes, so this works around that:
-  - "Lock my layout": the layout OBS writes the next time it closes is saved as *the* layout.
-  - From then on, every time OBS closes, the saved layout is checked and put back if anything changed it
-    (a crash, a reset, a different YouTube/Twitch layout, the window being un-maximized, ...).
+OBS only writes its layout to disk when it closes, and never says *why* it changed, so this follows OBS's own
+View -> Docks -> Lock Docks setting to tell a deliberate change from an accidental one:
+  - "Keep my layout": the layout OBS writes the next time it closes is saved as *the* layout.
+  - Lock Docks on: every time OBS closes, the saved layout is checked and put back if anything changed it
+    (a reset, a different YouTube/Twitch layout, the window being un-maximized, ...).
+  - Lock Docks off: you're rearranging, so the layout OBS closes with becomes the saved layout.
   - The locked layout is also written into OBS's per-service layouts (e.g. "YouTube - RTMPS"), which OBS
     loads instead when an account is connected, so connecting an account can't swap the layout.
 Runs only while OBS is closed (the helper calls on_obs_closed() after OBS exits).
@@ -97,13 +99,21 @@ def _fix_geometry(b64):
 
 # --------------------------------------------------------------------------- state
 
+def docks_locked():
+    """OBS's Lock Docks setting as OBS last wrote it (it writes it when it closes)."""
+    try:
+        return (_get(_read(_window_ini())[0], "BasicWindow", "DocksLocked") or "").lower() == "true"
+    except OSError:
+        return False
+
+
 def status():
     try:
         st = json.load(open(STATE_FILE, encoding="utf-8"))
     except (OSError, ValueError):
         st = {}
     return {"mode": st.get("mode", "off"), "saved_at": st.get("saved_at"), "restored_at": st.get("restored_at"),
-            "restores": st.get("restores", 0)}
+            "restores": st.get("restores", 0), "docks_locked": docks_locked()}
 
 
 def _load():
@@ -224,6 +234,15 @@ def on_obs_closed(log=print):
             log("layout lock: saved your layout")
             return ["saved"]
         if mode == "locked" and st.get("layout"):
+            now = _capture()
+            if now and (now.get("docks_locked") or "").lower() != "true":
+                # Lock Docks is off: the user is rearranging, so what OBS closed with is the new layout
+                if (now["dockstate"], now["geometry"]) != (st["layout"]["dockstate"], st["layout"].get("geometry")):
+                    st.update(layout=now, saved_at=time.strftime("%Y-%m-%d %H:%M"))
+                    _save(st)
+                    log("layout lock: saved your new layout (Lock Docks is off)")
+                _apply(st["layout"])         # window size fix + the same layout for connected accounts
+                return ["saved"]
             changed = _apply(st["layout"])
             if changed:
                 st["restored_at"] = time.strftime("%Y-%m-%d %H:%M")

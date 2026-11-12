@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controls+</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { overflow: auto; }
+  #main { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  #go { width: 100%; padding: 10px; font-size: 1.05em; font-weight: 700; display: flex; align-items: center;
+    justify-content: center; gap: 8px; }
+  #go .pmark svg { width: 1.2em; height: 1.2em; }
+  .dest { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; font-size: .9em; min-width: 0; }
+  .dest .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+  .tag { font-size: .72em; font-weight: 700; padding: 0 5px; border-radius: 3px; background: var(--panel2);
+    border: 1px solid var(--border); white-space: nowrap; }
+  .tag.warn { background: var(--warn); color: #1a1400; border-color: var(--warn); }
+  .warns { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .warns div { display: flex; gap: 6px; align-items: center; font-size: .86em; border-left: 3px solid var(--warn);
+    padding: 3px 6px; background: rgba(245,179,1,.07); border-radius: 3px; }
+  .warns div span { flex: 1; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row .grow { flex: 1; min-width: 0; }
+  .live-t { font-weight: 700; color: #ff6b70; } .sub { color: var(--muted); font-size: .82em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 4px; }
+  .dot.good { background: var(--ok); } .dot.ok { background: var(--warn); } .dot.bad { background: var(--danger); }
+  .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; flex: none; }
+  .rec-dot.on { background: #ff4d55; } .rec-dot.paused { background: var(--warn); }
+  /* recording, Virtual Camera and Studio Mode share one row (wraps when narrow) */
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tools button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+  .tools > button { flex: 1; }
+  #rec { display: flex; gap: 6px; flex: 1 1 auto; }
+  #rec button { flex: 1; } #rec .time { font-variant-numeric: tabular-nums; }
+  .tools button.on { border-color: var(--accent); color: var(--text); background: rgba(61,123,255,.15); }
+  .note { color: var(--muted); font-size: .8em; }
+  /* short docks (1080p layouts) */
+  @media (max-height: 320px) {
+    #main { padding: 6px; gap: 6px; }
+    .card { padding: 6px; }
+    #go { padding: 6px; font-size: 1em; }
+    .dest { margin-top: 3px; }
+    .warns { margin-top: 5px; }
+    .warns div { padding: 2px 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="bar"><span id="plat"></span><span id="pill" class="pill"><span class="dot"></span>…</span><span class="grow"></span></div>
+<div id="main">
+  <div class="card" id="stream">Loading…</div>
+  <div class="tools"><span id="rec"></span><button id="vcam">Virtual Cam</button><button id="studio">Studio Mode</button></div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+let c = null, busy = false;
+const NAMES = { youtube: 'YouTube', twitch: 'Twitch' };
+const MK = { youtube: 'yt', twitch: 'tw' };
+const PRIV = { public: 'Public', unlisted: 'Unlisted', private: 'Private' };
+
+async function act(body, okMsg) {
+  if (busy) return;
+  busy = true;
+  try { const d = await api('/api/controls', body); if (d.status) c = d.status; if (okMsg || d.note) toast(d.note || okMsg); }
+  catch (e) { toast(e.message, true); }
+  busy = false; draw();
+}
+
+function platforms() { return c.platform === 'both' ? ['youtube', 'twitch'] : [c.platform]; }
+
+function drawGo(box) {
+  // where Start Streaming goes, what viewers will see there, and anything worth knowing first
+  const go = el('button', 'primary'); go.id = 'go';
+  const ps = platforms();
+  go.append(...ps.map(p => platformMark(MK[p])), document.createTextNode('Go live on ' + ps.map(p => NAMES[p]).join(' + ')));
+  go.disabled = busy || !c.obs;
+  go.onclick = () => {
+    const w = c.warnings || [];
+    if (w.length && !confirm('Before you go live:\n\n' + w.map(x => '• ' + x.text).join('\n') + '\n\nGo live anyway?')) return;
+    act({ action: 'go_live' }, 'Going live…');
+  };
+  box.appendChild(go);
+  for (const p of ps) {
+    const t = (c.targets || {})[p] || {};
+    const d = el('div', 'dest'); d.appendChild(platformMark(MK[p]));
+    let text = t.title || (t.connected === false ? 'Not connected' : t.error ? 'Couldn\'t check (' + t.error + ')' : p === 'youtube' ? 'No stream set up for this key' : '');
+    if (p === 'twitch' && t.category) text += ' · ' + t.category;
+    d.appendChild(el('span', 't', text)); d.title = text;
+    if (p === 'youtube' && t.privacy) d.appendChild(el('span', 'tag' + (t.privacy === 'private' ? ' warn' : ''), PRIV[t.privacy] || t.privacy));
+    if (p === 'twitch' && c.platform === 'both' && c.test_mode) d.appendChild(el('span', 'tag warn', 'Test mode'));
+    box.appendChild(d);
+  }
+  const w = c.warnings || [];
+  if (w.length) {
+    const list = el('div', 'warns');
+    for (const x of w) {
+      const r = el('div'); r.appendChild(el('span', null, x.text));
+      if (x.fix) {
+        const b = el('button', null, x.fix_label || 'Fix'); b.disabled = busy;
+        b.onclick = () => {
+          if (x.fix === 'restart') { if (confirm('Restart OBS now? Your layout and settings are kept.')) act({ action: 'restart' }, 'Restarting OBS… the panels come back in a few seconds'); }
+          else if (x.fix === 'repoint') act({ action: 'repoint' });
+          else if (x.fix === 'test_off') act({ action: 'test_off' }, 'Twitch test mode off: Twitch will broadcast');
+          else if (x.fix.startsWith('unmute:')) act({ action: 'unmute', name: x.fix.slice(7) }, 'Unmuted');
+        };
+        r.appendChild(b);
+      }
+      list.appendChild(r);
+    }
+    box.appendChild(list);
+  } else box.appendChild(el('div', 'note', 'Everything looks ready.'));
+}
+
+function drawLive(box) {
+  // one row per platform, each with its own Stop; Stop all when both are running
+  let active = 0;
+  for (const p of platforms()) {
+    const s = c[p] || {};
+    const r = el('div', 'row'); r.style.padding = '3px 0';
+    r.appendChild(platformMark(MK[p]));
+    const mid = el('div', 'grow');
+    if (s.active) {
+      active++;
+      mid.appendChild(el('span', 'live-t', s.reconnecting ? 'Reconnecting…' : 'LIVE ' + fmtDur(s.duration_ms)));
+      const health = s.reconnecting || s.dropped_pct > 2 || s.congestion > 0.5 ? 'bad' : s.dropped_pct > 0.5 || s.congestion > 0.2 ? 'ok' : 'good';
+      const dot = el('span', 'dot ' + health); dot.title = s.dropped_pct + '% dropped frames'; mid.appendChild(dot);
+      if (p === 'twitch' && c.platform === 'both' && c.test_mode) mid.appendChild(el('span', 'sub', '  test mode: not broadcast'));
+    } else {
+      mid.appendChild(el('span', 'sub', s.problem || 'Not live'));
+    }
+    r.appendChild(mid);
+    if (s.active) {
+      const b = el('button', 'danger', 'Stop ' + NAMES[p]); b.disabled = busy;
+      b.onclick = () => {
+        const other = c.platform === 'both' ? ' The other platform keeps going.' : '';
+        if (confirm('Stop streaming to ' + NAMES[p] + '?' + other)) act({ action: 'stop', platform: p }, NAMES[p] + ' stopped');
+      };
+      r.appendChild(b);
+    }
+    box.appendChild(r);
+  }
+  if (active > 1) {
+    const all = el('button', 'danger', 'Stop all'); all.style.cssText = 'width:100%;margin-top:6px';
+    all.onclick = () => { if (confirm('Stop streaming everywhere?')) act({ action: 'stop_all' }, 'Stopped'); };
+    box.appendChild(all);
+  }
+}
+
+function draw() {
+  if (!c) return;
+  platformSwitch($('#plat'), c.platform || 'youtube');
+  statusPill($('#pill'), { state: !c.obs ? 'disconnected' : c.live ? 'live' : 'offline' });
+  const box = $('#stream'); box.innerHTML = '';
+  if (c.live) drawLive(box); else drawGo(box);
+  // recording
+  const r = c.recording || {}, rec = $('#rec'); rec.innerHTML = '';
+  const b = (label, op, cls, tip) => { const x = el('button', cls); x.append(...label); x.title = tip; x.disabled = busy || !c.obs; x.onclick = () => act({ action: 'record', op }); rec.appendChild(x); return x; };
+  const dot = () => el('span', 'rec-dot' + (r.paused ? ' paused' : r.active ? ' on' : ''));
+  if (!r.active) b([dot(), 'Record'], 'start', null, 'Start recording');
+  else {
+    b([dot(), el('span', 'time', fmtDur(r.duration_ms))], r.paused ? 'resume' : 'pause', null, r.paused ? 'Recording paused: click to resume' : 'Recording: click to pause');
+    b(['Stop'], 'stop', 'danger', 'Stop recording');
+  }
+  $('#vcam').title = c.virtualcam ? 'Stop Virtual Camera' : 'Start Virtual Camera';
+  $('#vcam').classList.toggle('on', !!c.virtualcam);
+  $('#studio').classList.toggle('on', !!c.studio);
+}
+$('#vcam').onclick = () => act({ action: 'virtualcam' });
+$('#studio').onclick = () => act({ action: 'studio' });
+
+async function poll() {
+  if (busy) return;
+  try { c = await api('/api/controls'); } catch (e) { c = c || { obs: false, platform: 'youtube' }; statusPill($('#pill'), { state: 'disconnected' }); return; }
+  draw();
+}
+poll(); setInterval(poll, 2000);
+connect(() => {});   // follows YouTube / Twitch switches made in other panels
+</script>
+</body>
+</html>

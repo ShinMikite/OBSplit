@@ -7,7 +7,13 @@
 <link rel="stylesheet" href="/static/common.css">
 <style>
   body { overflow: auto; }
-  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 8px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; padding: 8px; }
+  /* short docks (1080p layouts): tighter tiles so every tile fits without scrolling */
+  @media (max-height: 240px) {
+    #grid { gap: 4px; padding: 4px; }
+    .tile { padding: 2px 6px; border-radius: 6px; }
+    .tile .v { font-size: 1.15em; line-height: 1.15; }
+  }
   .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; min-width: 0; }
   .tile .k { font-size: .7em; color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -20,48 +26,72 @@
 </style>
 </head>
 <body>
-<div class="bar"><span id="plat"></span><span id="pill" class="pill"><span class="dot"></span>…</span><span id="title" class="grow muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span></div>
 <div id="grid"></div>
 <div id="issues"></div>
 <script src="/static/common.js"></script>
 <script>
-let s = {}, started = null;
+let s = {};
 const TWITCH_TILES = [
   ['viewers', 'Watching', () => fmtNum(s.viewers), () => s.peak ? 'peak ' + fmtNum(s.peak) : ''],
-  ['uptime', 'Uptime', () => started ? fmtDur(Date.now() - started) : '—', () => started ? 'since ' + fmtTime(started) : ''],
   ['followers', 'Followers', () => fmtNum(s.followers), () => s.follows ? '+' + s.follows + ' this session' : ''],
   ['rate', 'Chat / min', () => fmtNum(s.rate), () => fmtNum(s.messages) + ' messages'],
   ['chatters', 'Chatters', () => fmtNum(s.chatters), () => s.first_timers ? s.first_timers + ' first-time' : ''],
   ['money', 'Bits', () => fmtNum((s.superchats || {}).bits || 0), () => ''],
   ['members', 'New subs', () => fmtNum(s.members || 0), () => s.gifts ? s.gifts + ' gift' + (s.gifts > 1 ? 's' : '') : ''],
   ['subs', 'Subscribers', () => s.subs_total != null ? fmtNum(s.subs_total) : '—', () => s.subs_total == null ? 'Affiliates and Partners' : ''],
-  ['game', 'Category', () => s.game || '—', () => ''],
 ];
-let tiles = [
+// YouTube + Twitch at the same time: one set of tiles, each platform's share inside them (a sub line can mix text
+// and platform logos: {m:'yt'} / {m:'tw'}); stopping one platform is in Controls+
+const tw = () => s.tw || {}, ms = () => s.multi || {};
+const twHealth = () => { const t = ms().twitch || {}; return !t.active ? null : t.reconnecting || t.dropped_pct > 2 ? 'bad' : t.dropped_pct > 0.5 ? 'ok' : 'good'; };
+const RANK = { good: 0, noData: 1, ok: 2, bad: 3 };
+const worst = () => [s.health, twHealth()].filter(Boolean).sort((x, y) => RANK[y] - RANK[x])[0];
+const HN = h => h ? h.replace('noData', 'no data').replace(/^./, c => c.toUpperCase()) : '—';
+const BOTH_TILES = [
+  ['viewers', 'Watching', () => s.viewers == null && tw().viewers == null ? '—' : fmtNum((s.viewers || 0) + (tw().viewers || 0)),
+    () => [{ m: 'yt' }, ' ' + fmtNum(s.viewers) + '  ', { m: 'tw' }, ' ' + fmtNum(tw().viewers)]],
+  ['health', 'Health', () => HN(worst()),
+    () => [{ m: 'yt' }, ' ' + HN(s.health) + '  ', { m: 'tw' }, ' ' + ((ms().twitch || {}).active ? ms().twitch.dropped_pct + '%' : '—')]],
+  ['rate', 'Chat / min', () => fmtNum((s.rate || 0) + (tw().rate || 0)), () => fmtNum((s.messages || 0) + (tw().messages || 0)) + ' messages'],
+  ['chatters', 'Chatters', () => fmtNum((s.chatters || 0) + (tw().chatters || 0)), () => ''],
+  ['members', 'Members', () => fmtNum((s.members || 0) + (tw().members || 0)), () => [{ m: 'yt' }, ' ' + (s.members || 0) + '  ', { m: 'tw' }, ' ' + (tw().members || 0)]],
+  ['likes', 'Likes', () => fmtNum(s.likes), () => '', 'yt'],
+  ['followers', 'Followers', () => fmtNum(tw().followers), () => tw().follows ? '+' + tw().follows + ' this session' : '', 'tw'],
+  // Super Chats (YouTube) and bits (Twitch) together
+  ['money', 'Tips', () => { const e = Object.entries(s.superchats || {}).map(([c, v]) => c + v.toLocaleString(undefined, { maximumFractionDigits: 2 })); const bits = ((tw().superchats) || {}).bits; if (bits) e.push(fmtNum(bits) + ' bits'); return e.length ? e.join(' + ') : '—'; },
+    () => ''],
+];let tiles = [
   ['viewers', 'Watching', () => fmtNum(s.viewers), () => s.peak ? 'peak ' + fmtNum(s.peak) : ''],
-  ['uptime', 'Uptime', () => started ? fmtDur(Date.now() - started) : '—', () => started ? 'since ' + fmtTime(started) : ''],
   ['likes', 'Likes', () => fmtNum(s.likes), () => s.views != null ? fmtNum(s.views) + ' views' : ''],
   ['rate', 'Chat / min', () => fmtNum(s.rate), () => fmtNum(s.messages) + ' messages'],
   ['chatters', 'Chatters', () => fmtNum(s.chatters), () => s.first_timers ? s.first_timers + ' first-time' : ''],
   ['money', 'Super Chats', () => { const e = Object.entries(s.superchats || {}); return e.length ? e.map(([c, v]) => c + v.toLocaleString(undefined, { maximumFractionDigits: 2 })).join(' + ') : '—'; }, () => ''],
   ['members', 'New members', () => fmtNum((s.members || 0)), () => s.gifts ? s.gifts + ' gift purchase' + (s.gifts > 1 ? 's' : '') : ''],
   ['health', 'Stream health', () => s.health ? s.health.replace('noData', 'no data').replace(/^./, c => c.toUpperCase()) : '—', () => ''],
-  ['quota', 'API used today', () => fmtNum(s.quota), () => 'of 10,000'],
 ];
 let drawnFor = null;
 function draw() {
   const g = $('#grid');
   const plat = s.platform || 'youtube';
-  if (drawnFor !== plat) { drawnFor = plat; g.innerHTML = ''; if (plat === 'twitch') tiles = TWITCH_TILES; platformSwitch($('#plat'), plat); }
-  if (!g.children.length) for (const [id, k] of tiles) { const t = el('div', 'tile'); t.id = 't-' + id; t.append(el('div', 'k', k), el('div', 'v'), el('div', 's')); g.appendChild(t); }
-  for (const [id, , v, sub] of tiles) { const t = $('#t-' + id); t.children[1].textContent = v(); t.children[2].textContent = sub(); }
-  if ($('#t-health')) $('#t-health').children[1].className = 'v ' + (s.health || '');
+  if (drawnFor !== plat) { drawnFor = plat; g.innerHTML = ''; if (plat === 'twitch') tiles = TWITCH_TILES; else if (plat === 'both') tiles = BOTH_TILES; }
+  if (!g.children.length) for (const [id, k, , , mark] of tiles) {
+    const t = el('div', 'tile'); t.id = 't-' + id; const kk = el('div', 'k', k);
+    if (mark) kk.prepend(platformMark(mark));
+    t.append(kk, el('div', 'v'), el('div', 's')); g.appendChild(t);
+  }
+  for (const [id, , v, sub] of tiles) {
+    const t = $('#t-' + id); t.children[1].textContent = v();
+    const x = sub(), sb = t.children[2]; sb.innerHTML = '';
+    if (Array.isArray(x)) for (const part of x) sb.append(part.m ? platformMark(part.m) : document.createTextNode(part));
+    else sb.textContent = x;
+  }
+  if ($('#t-health')) $('#t-health').children[1].className = 'v ' + ((plat === 'both' ? worst() : s.health) || '');
   const iss = $('#issues'); iss.innerHTML = '';
   for (const i of s.issues || []) { const d = el('div', null, i.text); if (i.sev === 'error') d.style.borderLeftColor = 'var(--danger)'; iss.appendChild(d); }
   if (s.error) iss.appendChild(el('div', null, s.error));
 }
 async function poll() {
-  try { s = await api('/api/stats'); started = s.started || null; $('#title').textContent = (s.status && s.status.title) || ''; statusPill($('#pill'), s.status || {}); } catch (e) { statusPill($('#pill'), { state: 'disconnected' }); }
+  try { s = await api('/api/stats'); } catch (e) { }
   draw();
 }
 poll(); setInterval(poll, 10000); setInterval(draw, 1000);

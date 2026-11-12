@@ -43,6 +43,8 @@ import obslink  # noqa: E402
 import layoutguard  # noqa: E402
 import quality  # noqa: E402
 import twitch  # noqa: E402
+import multistream  # noqa: E402
+import controls  # noqa: E402
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(APP_DIR, "web")
@@ -1126,7 +1128,7 @@ def restart_obs():
 
 # --------------------------------------------------------------------------- HTTP
 
-PAGES = {"/": "setup.html", "/setup": "setup.html", "/chat": "chat.html", "/info": "info.html",
+PAGES = {"/": "setup.html", "/setup": "setup.html", "/chat": "chat.html", "/info": "info.html", "/controls": "controls.html",
          "/stats": "stats.html", "/scenes": "scenes.html", "/audio": "audio.html", "/sources": "sources.html"}
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
@@ -1144,12 +1146,16 @@ class App:
         self.categories = None
         self.obs = obslink.ObsLink(self.config, log)
         self.quality = quality.Quality(self.obs, log, lambda: (self.cur_hub().stats or {}).get("health"),
-                                       platform=lambda: self.platform())
+                                       platform=lambda: "twitch" if self.platform() == "twitch" else "youtube")
         self.twhub = Hub(self.config, None, self.store)          # Twitch chat and status, same shape as YouTube's
         self.twitch = twitch.Twitch(DATA_DIR, self.config, log, self.twhub, self.obs)
+        self.multi = multistream.Multistream(DATA_DIR, self.config, self.obs, self.twitch, self.quality, log)
+        self.controls = controls.Controls(self, log)
 
     def platform(self):
-        return "twitch" if self.config.get("platform") == "twitch" else "youtube"
+        """youtube, twitch, or both (YouTube on OBS's stream + Twitch on OBSplit's second stream)."""
+        p = self.config.get("platform")
+        return p if p in ("twitch", "both") else "youtube"
 
     def cur_hub(self):
         """The chat/status hub of the platform picked with the YouTube / Twitch buttons."""
@@ -1277,14 +1283,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                          name=(last and last.get("name")) or d["name"], banned=ch in hub.bans or ch.startswith("tw:"))
                 return self.send_json(d)
             if p == "/api/stats":
-                hub = APP.cur_hub()
-                s = hub.session
-                return self.send_json({**hub.stats, "messages": s["messages"],
-                                       "chatters": len(s["chatters"]), "rate": hub.chat_rate(),
-                                       "superchats": s["superchats"], "members": s["members"], "gifts": s["gifts"],
-                                       "first_timers": s["first_timers"], "follows": s.get("follows", 0),
-                                       "quota": APP.quota.used(), "status": hub.status, "platform": APP.platform(),
-                                       "connected": APP.cur_connected()})
+                def one(hub):
+                    s = hub.session
+                    return {**hub.stats, "messages": s["messages"], "chatters": len(s["chatters"]),
+                            "rate": hub.chat_rate(), "superchats": s["superchats"], "members": s["members"],
+                            "gifts": s["gifts"], "first_timers": s["first_timers"], "follows": s.get("follows", 0),
+                            "status": hub.status}
+                out = {**one(APP.cur_hub()), "quota": APP.quota.used(), "platform": APP.platform(),
+                       "connected": APP.cur_connected()}
+                if APP.platform() == "both":     # YouTube in the top level (as before) + Twitch + both streams
+                    out["tw"] = one(APP.twhub)
+                    out["multi"] = APP.multi.status()
+                return self.send_json(out)
+            if p == "/api/multi":
+                return self.send_json({"status": APP.multi.status(), "readiness": APP.multi.readiness()})
+            if p == "/api/controls":
+                return self.send_json(APP.controls.status())
             if p == "/api/tw/channel":
                 return self.send_json({**APP.twitch.get_channel(), "key_in_obs": APP.twitch.stream_key_in_obs(),
                                        "login": APP.twitch.t.get("login")})
@@ -1336,7 +1350,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             c["channel_title"] = tw["name"] or tw["channel"] or ""
             c["channel_handle"] = tw["login"] or tw["channel"] or ""
         return {"status": APP.cur_hub().status, "config": c, "platform": plat, "twitch": tw,
-                "version": VERSION, "update": update_info(),
+                "version": VERSION, "update": update_info(), "tw_status": APP.twhub.status,
+                "tw_connected": APP.twitch.connected(),
                 "has_client": APP.google.client() is not None, "yt_connected": APP.google.connected(),
                 "connected": APP.cur_connected(), "quota": APP.quota.used()}
 
@@ -1387,26 +1402,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def sse(self):
-        hub = APP.cur_hub()
-        q, snap = hub.subscribe()
+        # YouTube + Twitch: both chats in one feed (Twitch messages carry plat "tw"); otherwise just one platform
+        hubs = [APP.hub, APP.twhub] if APP.platform() == "both" else [APP.cur_hub()]
+        subs = [h.subscribe() for h in hubs]
+        snap = sorted((e for _, s in subs for e in s), key=lambda e: e.get("ts") or 0)
+        both = len(hubs) == 2
         try:
             if not self._stream_open():
                 return
             self._stream_send({"type": "hello", **self.state(), "recent": snap[-400:]})
+            idle = 0.0
             while True:
-                try:
-                    ev = q.get(timeout=15)
-                    if ev.get("type") == "settings":
+                got = False
+                for i, (q, _) in enumerate(subs):
+                    try:
+                        ev = q.get(timeout=0.25 if i == 0 else 0)
+                    except queue.Empty:
+                        continue
+                    got = True
+                    t = ev.get("type")
+                    if t == "settings":
                         ev = {**ev, **self.state()}
-                    elif ev.get("type") == "status":
+                    elif t == "status":
                         ev = {**ev, "connected": APP.cur_connected()}
+                        if both and hubs[i] is APP.twhub:
+                            ev = {**ev, "type": "tw_status"}
+                    elif t == "clear" and both:
+                        ev = {**ev, "plat": "tw" if hubs[i] is APP.twhub else "yt"}
                     self._stream_send(ev)
-                except queue.Empty:
+                idle = 0.0 if got else idle + 0.25
+                if idle >= 15:
                     self._stream_ping()
+                    idle = 0.0
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
-            hub.unsubscribe(q)
+            for h, (q, _) in zip(hubs, subs):
+                h.unsubscribe(q)
             self.close_connection = True
 
     def serve_mixcheck(self):
@@ -1570,14 +1602,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         raise ApiError(400, "That doesn't look like a Twitch channel name.")
                     allowed["twitch_channel"] = m.group(1).lower() if t else ""
                     APP.twitch.wake.set()
-                switched = "platform" in b and b["platform"] in ("youtube", "twitch") and b["platform"] != APP.platform()
-                if "platform" in b and b["platform"] in ("youtube", "twitch"):
+                plats = ("youtube", "twitch", "both")
+                switched = "platform" in b and b["platform"] in plats and b["platform"] != APP.platform()
+                if switched and APP.platform() == "both" and APP.multi._second_active():
+                    raise ApiError(400, "Twitch is still streaming. Stop it first, then switch.")
+                if "platform" in b and b["platform"] in plats:
                     allowed["platform"] = b["platform"]
                 APP.config.update(**allowed)
                 APP.chat.wake.set()
                 note = None
                 if switched:
-                    note = self.switch_stream_key(b["platform"])
+                    # YouTube + Twitch: OBS's own stream goes to YouTube, OBSplit's second stream to Twitch
+                    note = self.switch_stream_key("youtube" if b["platform"] == "both" else b["platform"])
+                    try:
+                        mn = APP.multi.prepare()
+                    except Exception as e:
+                        log("second stream setup failed", repr(e)[:200])
+                        mn = "Couldn't set up the Twitch stream: " + str(e)[:120]
+                    if b["platform"] == "both" and not mn:
+                        mn = "Twitch starts and stops together with it (Stop Twitch in Stats+ stops it on its own)."
+                    if mn:
+                        note = (note + " " if note else "") + mn
                     try:   # the platform's stream quality too (e.g. Twitch needs H.264)
                         qn = APP.quality.follow_platform()
                     except Exception as e:
@@ -1605,22 +1650,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(APP.twitch.set_channel(self.jbody()))
             if p == "/api/tw/use-key":
                 return self.send_json(APP.twitch.use_stream_key())
-            if APP.platform() == "twitch" and p in ("/api/send", "/api/delete", "/api/ban", "/api/unban", "/api/mod"):
+            if p in ("/api/send", "/api/delete", "/api/ban", "/api/unban", "/api/mod"):
                 b = self.jbody()
+                plat = APP.platform()
+                if p == "/api/send":
+                    # YouTube + Twitch: send to both, or to the one picked next to the message box
+                    targets = ({"youtube": ["youtube"], "twitch": ["twitch"]}.get(b.get("target"), ["youtube", "twitch"])
+                               if plat == "both" else [plat])
+                else:
+                    # moderation goes to the platform the message or person is on
+                    is_tw = (b.get("ch") or "").startswith("tw:") or (b.get("id") or "") in APP.twhub.by_id \
+                        or (b.get("id") or "").startswith("follow-")
+                    targets = ["twitch"] if plat == "twitch" or (plat == "both" and is_tw) else ["youtube"]
+                if "twitch" not in targets:
+                    targets = None              # YouTube only: handled below
+            else:
+                targets = None
+            if targets:
                 if p == "/api/send":
                     APP.twitch.send(b.get("text"))
-                elif p == "/api/delete":
-                    mid = b.get("id") or ""
-                    if mid.startswith("follow-"):
-                        raise ApiError(400, "That's a follow notice, not a message.")
-                    APP.twitch.delete_message(mid)
-                elif p == "/api/ban":
-                    APP.twitch.ban(b.get("ch"), int(b.get("seconds") or 0))
-                elif p == "/api/unban":
-                    APP.twitch.unban(b.get("ch"))
+                    if "youtube" not in targets or not APP.hub.status.get("video"):
+                        return self.send_json({"ok": True})   # YouTube isn't live: Twitch only
+                    # sending to both: carry on to YouTube below
                 else:
-                    APP.twitch.add_mod(b.get("ch"))
-                return self.send_json({"ok": True})
+                    if p == "/api/delete":
+                        mid = b.get("id") or ""
+                        if mid.startswith("follow-"):
+                            raise ApiError(400, "That's a follow notice, not a message.")
+                        APP.twitch.delete_message(mid)
+                    elif p == "/api/ban":
+                        APP.twitch.ban(b.get("ch"), int(b.get("seconds") or 0))
+                    elif p == "/api/unban":
+                        APP.twitch.unban(b.get("ch"))
+                    else:
+                        APP.twitch.add_mod(b.get("ch"))
+                    return self.send_json({"ok": True})
+            if p == "/api/controls":
+                b = self.jbody()
+                a = b.get("action")
+                if a == "repoint":            # point OBS's stream key at the picked platform again
+                    note = self.switch_stream_key("youtube" if APP.platform() == "both" else APP.platform())
+                    APP.controls.forget()
+                    return self.send_json({"ok": True, "note": note, "status": APP.controls.status()})
+                if a == "restart":
+                    busy = APP.quality.busy()
+                    if busy:
+                        raise ApiError(400, f"Stop {busy} first, then restart OBS.")
+                    if not RESTARTING.is_set():
+                        threading.Thread(target=restart_obs, daemon=True, name="restart-obs").start()
+                    return self.send_json({"ok": True})
+                try:
+                    return self.send_json({"ok": True, "status": APP.controls.act(b)})
+                except controls.ControlsError as e:
+                    raise ApiError(400, str(e))
+                except multistream.MultistreamError as e:
+                    raise ApiError(400, str(e))
+            if p == "/api/multi":
+                b = self.jbody()
+                try:
+                    if b.get("action") == "stop":
+                        APP.multi.stop(b.get("platform"))
+                    elif b.get("action") == "test":
+                        APP.multi.test_mode = bool(b.get("on"))
+                        APP.multi.prepare()
+                    else:
+                        raise ApiError(400, "Unknown action.")
+                except multistream.MultistreamError as e:
+                    raise ApiError(400, str(e))
+                return self.send_json({"ok": True, "status": APP.multi.status()})
             if p == "/api/quality":
                 b = self.jbody()
                 try:

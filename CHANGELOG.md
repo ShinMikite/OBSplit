@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Controls+** (new panel): Go Live says where it goes and what viewers will see; a check before going live with one-click fixes (Twitch test mode, muted mic, OBS pointed at the wrong platform, no YouTube stream for your key, Private stream, restart needed); a row per platform while live with its own Stop and Stop all; recording, Virtual Camera and Studio Mode.
+- **Stream to YouTube and Twitch at the same time** with the new **YouTube + Twitch** button, each with its own settings (for example AV1 at 10 Mbps for YouTube and H.264 at 6 Mbps for Twitch). No Restream and no plugin: YouTube uses OBS's own stream and OBSplit adds a second one through OBS's built-in scripting. **Start Streaming** starts both; Controls+ has a **Stop** button for each.
+- In this mode Chat+ shows both chats with a small logo on each message and a Both / YouTube / Twitch picker for sending; moderation goes to the right platform. Stream Info has a YouTube and a Twitch tab.
+- The YouTube / Twitch / YouTube + Twitch buttons now live only at the top of Controls+, instead of on every panel.
+- Stats+ is shorter in YouTube + Twitch mode: one set of tiles with each platform's numbers inside them.
+- **No more saving your layout by hand:** the layout lock follows OBS's own **View → Docks → Lock Docks**. On: your layout is protected and put back if anything changes it. Off: you're rearranging, and the layout you close OBS with is kept. The "Update my saved layout" button is gone.
+- **Panels fit 1080p layouts better:** Stats+ tiles fit short panels without scrolling; Controls+ puts recording, Virtual Cam and Studio Mode in one row; the Stream Info thumbnail stays small enough to see the title and description; Scenes+ help moved into a **?** button.
+- **Less repetition across panels:** the live/offline status is only in Controls+ and Chat+; Stats+ no longer repeats the stream title, live time (Controls+), API usage (OBSplit Setup) or Twitch category (Stream Info); Chat+ no longer repeats the viewer count (Stats+).
+- OBSplit Setup checks whether your upload and graphics card can handle both streams before you try, and can test Twitch without broadcasting (Twitch's bandwidth test).
+
 ## 0.2.2 (2026-11-11)
 
 - **Smoother updates:** the installer checks that OBS is closed before changing anything ("Close OBS, then click Retry") and makes sure OBSplit's helper has stopped, so Windows never asks to close a program partway through. Quiet installs skip the "connected" message.

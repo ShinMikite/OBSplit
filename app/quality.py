@@ -344,11 +344,13 @@ class Quality:
                     return e, codec
         return "obs_x264", "h264"
 
-    def plan(self, preset, cur=None):
+    def plan(self, preset, cur=None, platform=None):
+        """platform: plan for this platform instead of the selected one (streaming to both uses both)."""
+        plat = platform or self.platform()
         p = PRESETS[preset]
         h = p["height"]
         notes = []
-        if self.platform() == "twitch":
+        if plat == "twitch":
             enc, codec = self.best_encoder(prefer=("h264",))
             if h > 1080:
                 h = 1080
@@ -377,7 +379,7 @@ class Quality:
         bw, bh = (cur or {}).get("base") or [1920, 1080]
         bw, bh = bw or 1920, bh or 1080
         ow = int(round(h * bw / bh / 2)) * 2
-        twitch = self.platform() == "twitch"
+        twitch = plat == "twitch"
         if preset == "sharp" and not up and not twitch:
             notes.append("Needs roughly 20 Mbps or more of upload. Test your upload first if you're not sure.")
         if preset == "sharp" and codec == "h264" and not twitch:

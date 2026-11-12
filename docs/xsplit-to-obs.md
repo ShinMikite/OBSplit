@@ -29,8 +29,8 @@ Where XSplit's features live in OBS Studio (with OBSplit installed), and setting
 - **Move:** drag a panel by its title bar or tab and drop it where the blue highlight shows.
 - **Combine into tabs:** drop a panel onto the middle of another panel.
 - **Pop out:** double-click the title bar; double-click again to put it back.
-- **Docks → Lock Docks** stops accidental moves. Resizing still works while locked.
-- **OBSplit Setup → Lock my panel layout** keeps your arrangement and sizes for good: OBS sometimes loses its layout (after a crash, or when an account like YouTube is connected), and OBSplit puts yours back every time OBS closes. Use **Update my saved layout** after rearranging on purpose.
+- **Docks → Lock Docks** stops accidental moves.
+- **OBSplit Setup → Keep my panel layout** keeps your arrangement and sizes for good: OBS sometimes loses its layout (after a crash, or when an account like YouTube is connected). While **Lock Docks** is on, OBSplit puts yours back every time OBS closes (that includes panel sizes you drag while locked). Turn Lock Docks off to rearrange or resize; the layout you close OBS with is kept.
 
 ## Recommended settings
 

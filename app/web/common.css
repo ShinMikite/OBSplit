@@ -50,6 +50,17 @@ html, body { overflow-x: hidden; }
 .plat button.on { background: rgba(255,255,255,.1); }
 .plat button.on.youtube { color: #ff3040; }
 .plat button.on.twitch { color: #a970ff; }
+.plat button.both svg { width: 23px; height: 18px; }
+/* not picked: grey with see-through marks (like the other two); picked: red + purple with white marks */
+.plat button.both .mk { fill: var(--panel); } .plat button.both .plus { stroke: var(--panel); }
+.plat button.both:hover .mk { fill: color-mix(in srgb, var(--panel), white 7%); }
+.plat button.both:hover .plus { stroke: color-mix(in srgb, var(--panel), white 7%); }
+.plat button.on.both .yt { color: #ff3040; } .plat button.on.both .tw { color: #9146ff; }
+.plat button.on.both .mk { fill: #fff; } .plat button.on.both .plus { stroke: #fff; }
+/* small platform mark on chat messages and stream rows while streaming to both */
+.pmark { display: inline-flex; vertical-align: -.15em; margin-right: 3px; }
+.pmark svg { width: 1em; height: 1em; }
+.pmark.yt { color: #ff3040; } .pmark.tw { color: #a970ff; }
 .stale { opacity: .55; pointer-events: none; transition: opacity .2s; }
 @keyframes pulse { 50% { opacity: .35; } }
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-start;

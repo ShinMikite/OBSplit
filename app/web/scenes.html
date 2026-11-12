@@ -46,18 +46,18 @@
     box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; min-width: 160px; }
   .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 10px; border-radius: 5px; }
   .menu button:hover { background: rgba(255,255,255,.08); }
-  #legend { padding: 0 8px 6px; font-size: .75em; color: var(--muted); flex: none; }
+  #legend { font-weight: 700; padding: 2px 8px; cursor: help; }
 </style>
 </head>
 <body>
 <div class="bar">
   <span id="pill" class="pill"><span class="dot"></span>…</span>
   <span id="mode" class="muted small grow" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+  <button id="legend" hidden>?</button>
   <button id="addScene" title="Make a new scene">+ Scene</button>
   <button id="go" class="primary" hidden title="Switch to the green preview scene">Transition</button>
 </div>
 <div id="grid"></div>
-<div id="legend"></div>
 <script src="/static/common.js"></script>
 <script>
 let st = { scenes: [], inputs: {}, specials: [], rules: {} }; const thumbs = {};
@@ -82,7 +82,7 @@ function draw() {
   const g = $('#grid');
   if (!st.connected && !(st.scenes && st.scenes.length)) {
     g.innerHTML = '<div class="notice" style="grid-column:1/-1"></div>';
-    $('.notice').textContent = st.error || 'Connecting to OBS…'; $('#legend').textContent = ''; return;
+    $('.notice').textContent = st.error || 'Connecting to OBS…'; $('#legend').hidden = true; return;
   }
   g.classList.toggle('stale', !st.connected);   // keep showing the last scenes while reconnecting
   g.innerHTML = '';
@@ -121,8 +121,9 @@ function draw() {
     if (st.studio) c.ondblclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
     g.appendChild(c);
   }
-  $('#legend').textContent = st.specials.length
-    ? 'Drag to reorder · right-click to rename or delete · mic/speaker: what happens when you switch to that scene (faint = no change, tick = on, cross = muted)' : '';
+  // the how-to lives in the ? button's tooltip instead of taking up space under the scenes
+  $('#legend').hidden = !st.specials.length;
+  $('#legend').title = 'Drag a scene to reorder it. Right-click to rename or delete. Mic / speaker on each scene: what happens when you switch to that scene (faint = no change, tick = on, cross = muted).';
 }
 
 function header() {
@@ -130,10 +131,11 @@ function header() {
   if (st.connected) { p.className = 'pill ok'; p.innerHTML = '<span class="dot"></span>'; p.title = 'Connected to OBS'; }
   else if (st.reconnecting) { p.className = 'pill reconnect'; p.innerHTML = '<span class="dot"></span>Reconnecting…'; p.title = 'The OBSplit helper is restarting. This fixes itself.'; }
   else { p.className = 'pill'; p.innerHTML = '<span class="dot"></span>OBS offline'; p.title = st.error || ''; }
-  $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click = switch' : 'Click a scene to switch to it') : '';
+  $('#mode').textContent = st.connected ? (st.studio ? 'Studio Mode: click = preview, double-click = switch' : '') : '';
   $('#go').hidden = !(st.connected && st.studio);
 }
 $('#go').onclick = () => api('/api/obs/transition', {}).catch(e => toast(e.message, true));
+$('#legend').onclick = () => toast($('#legend').title);
 let dragName = null;
 const admin = body => api('/api/obs/scene-admin', body).catch(e => toast(e.message, true));
 $('#addScene').onclick = () => { const n = prompt('Name for the new scene:'); if (n && n.trim()) admin({ action: 'create', name: n.trim() }); };

@@ -114,7 +114,7 @@ end
 function script_description()
     return [[<b>OBSplit (backup)</b><br>
 Safety net: starts the OBSplit panels if the main launcher couldn't. Leave it in place.<br>
-Panels are in the <b>Docks</b> menu (Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, OBSplit Setup).]]
+Panels are in the <b>Docks</b> menu (Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, Controls+, OBSplit Setup).]]
 end
 
 function script_properties()

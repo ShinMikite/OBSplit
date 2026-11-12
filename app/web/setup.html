@@ -39,12 +39,18 @@
 </style>
 </head>
 <body>
-<div class="bar"><span id="plat"></span><b>OBSplit setup</b><span class="grow"></span><span id="pill" class="pill"><span class="dot"></span>…</span></div>
+<div class="bar"><b>OBSplit setup</b></div>
 <div id="main">
   <div id="update" class="box small" hidden style="border-color:var(--accent);margin-top:10px"></div>
+  <div id="platNote" class="muted small" style="margin-top:8px"></div>
 
   <h2><span id="c6" class="chk">1</span> Stream quality</h2>
   <div class="box small" id="quality">Loading…</div>
+
+  <div id="msSteps" hidden>
+  <h2><span id="m1" class="chk">2</span> Stream to YouTube and Twitch</h2>
+  <div class="box small" id="ms1">Checking…</div>
+  </div>
 
   <div id="twSteps" hidden>
   <h2><span id="t1" class="chk">2</span> Connect Twitch</h2>
@@ -79,16 +85,15 @@
       <tr><td>Scenes+</td><td><code>http://127.0.0.1:47821/scenes</code></td></tr>
       <tr><td>Sources+</td><td><code>http://127.0.0.1:47821/sources</code></td></tr>
       <tr><td>Audio+</td><td><code>http://127.0.0.1:47821/audio</code></td></tr>
+      <tr><td>Controls+</td><td><code>http://127.0.0.1:47821/controls</code></td></tr>
       <tr><td>OBSplit Setup</td><td><code>http://127.0.0.1:47821/</code></td></tr>
     </table>
   </div>
 
-  <h2><span id="c5" class="chk">6</span> Lock my panel layout</h2>
+  <h2><span id="c5" class="chk">6</span> Keep my panel layout</h2>
   <div class="box small">
     <div id="layoutState" style="margin-bottom:6px"></div>
     <div class="row-flex" id="layoutBtns"></div>
-    <p class="muted" style="margin:6px 0 0">OBS only saves its layout when it closes, and can lose it after a crash or when an account is connected.
-      Once locked, OBSplit puts your exact layout and sizes back every time OBS closes, and uses it for your YouTube layout too.</p>
   </div>
   <p class="muted small" id="quota"></p>
 </div>
@@ -99,28 +104,33 @@ const open = url => api('/api/open', { url }).catch(e => toast(e.message, true))
 
 async function drawLayout(s) {
   if (!s) { try { s = await api('/api/obs/layout'); } catch (e) { return; } }
-  const msg = { off: 'Not locked. OBS saves and restores the layout on its own.',
-    pending: 'Will be saved when you close OBS. Arrange your panels the way you want them, then close OBS once.',
-    locked: 'Locked' + (s.saved_at ? ' (saved ' + s.saved_at + ')' : '') + '. Your layout is put back every time OBS closes.' +
-      (s.restores ? ' Fixed ' + s.restores + ' time' + (s.restores === 1 ? '' : 's') + (s.restored_at ? ', last ' + s.restored_at : '') + '.' : '') };
+  // follows OBS's View → Docks → Lock Docks: on = protected, off = what you close OBS with is saved
+  const when = s.saved_at ? ' (saved ' + s.saved_at + ')' : '';
+  const msg = { off: 'Off. OBS can lose your layout after a crash or when you connect an account.',
+    pending: 'Saved when you next close OBS. After that, OBS’s View → Docks → Lock Docks decides: on protects it, off lets you rearrange.',
+    locked: s.docks_locked
+      ? 'Protected' + when + '. To rearrange, turn off View → Docks → Lock Docks in OBS, and back on when you’re done.'
+      : 'Saving as you go' + when + ': Lock Docks is off in OBS, so the layout you close OBS with is kept. Turn on View → Docks → Lock Docks to protect it.' };
   $('#layoutState').textContent = msg[s.mode] || '';
-  $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : String(stepNum().lock);
+  $('#c5').className = 'chk' + (s.mode === 'locked' ? ' done' : ''); $('#c5').textContent = s.mode === 'locked' ? '✓' : num('c5');
   const btns = $('#layoutBtns'); btns.innerHTML = '';
   const b = (label, action, cls) => { const x = el('button', cls, label); x.onclick = () => api('/api/obs/layout', { action }).then(drawLayout).catch(e => toast(e.message, true)); btns.appendChild(x); };
-  if (s.mode === 'off') b('Lock my layout', 'lock', 'primary');
-  if (s.mode === 'pending') b('Cancel', 'unlock');
-  if (s.mode === 'locked') { b('Update my saved layout', 'update'); b('Unlock', 'unlock'); }
+  if (s.mode === 'off') b('Keep my layout', 'lock', 'primary');
+  else b('Turn off', 'unlock');
 }
 drawLayout();
 const L = (text, url) => `<span class="link" data-url="${url}">${text}</span>`;
 document.addEventListener('click', e => { const u = e.target.dataset && e.target.dataset.url; if (u) open(u); });
 
-// The YouTube / Twitch switch changes steps 2-4; Stream quality, Your panels and Lock layout are the same for both.
-const stepNum = () => st.platform === 'twitch' ? { panels: 4, lock: 5 } : { panels: 5, lock: 6 };
+// The YouTube / Twitch buttons in Controls+ change steps 2-4; Stream quality, Your panels and Lock layout are the same for both.
+// steps are numbered by what's shown for the picked platform (YouTube, Twitch, or both)
+const NUM = {};
+function numberSteps() { let i = 0; for (const c of document.querySelectorAll('#main h2 .chk')) { if (c.closest('[hidden]')) continue; NUM[c.id] = String(++i); } }
+const num = id => NUM[id] || '·';
 
 function drawTwitch() {
   const tw = st.twitch || {}, c = st.config || {};
-  $('#t1').className = 'chk' + (tw.connected ? ' done' : ''); $('#t1').textContent = tw.connected ? '✓' : '2';
+  $('#t1').className = 'chk' + (tw.connected ? ' done' : ''); $('#t1').textContent = tw.connected ? '✓' : num('t1');
   const b1 = $('#tw1'); b1.innerHTML = '';
   if (tw.connected) {
     b1.appendChild(document.createTextNode('Connected as ')); b1.appendChild(el('b', null, tw.name || tw.login));
@@ -146,7 +156,7 @@ function drawTwitch() {
     if (tw.sign_in_error) b1.appendChild(el('div', 'qwarn', tw.sign_in_error));
   }
   const chanOk = !!(tw.connected || tw.channel);
-  $('#t2').className = 'chk' + (chanOk ? ' done' : ''); $('#t2').textContent = chanOk ? '✓' : '3';
+  $('#t2').className = 'chk' + (chanOk ? ' done' : ''); $('#t2').textContent = chanOk ? '✓' : num('t2');
   const b2 = $('#tw2'); b2.innerHTML = '';
   if (tw.connected) b2.appendChild(el('div', null, 'Nothing to do here. Chat follows your channel (twitch.tv/' + tw.login + ').'));
   else {
@@ -181,16 +191,40 @@ function drawUpdate() {
   box.appendChild(el('div', 'qnote', 'Close OBS, then run the downloaded installer. Your panels, layout, sign-ins and settings are kept.'));
 }
 
+// YouTube + Twitch at the same time: should this PC even try, and a no-broadcast test for Twitch
+async function drawMulti() {
+  const box = $('#ms1');
+  let d; try { d = await api('/api/multi'); } catch (e) { box.textContent = e.message; return; }
+  const r = d.readiness, ok = r.verdict === 'good' || r.verdict === 'tight';
+  const ready = ok && (st.twitch || {}).connected && (st.yt_connected != null ? st.yt_connected : st.connected);
+  $('#m1').className = 'chk' + (ready ? ' done' : ''); $('#m1').textContent = ready ? '✓' : num('m1');
+  box.innerHTML = '';
+  const head = { good: 'Your PC is ready to stream to both.', tight: 'It should work, but your upload is a bit tight.',
+    no: 'Not recommended on this PC.', unknown: 'Probably fine; test your upload to be sure.' }[r.verdict];
+  const h = el('b', r.verdict === 'no' ? 'qwarn' : null, head); box.appendChild(h);
+  const ul = el('ul'); ul.style.margin = '6px 0'; ul.style.paddingLeft = '18px';
+  for (const x of r.reasons) ul.appendChild(el('li', null, x));
+  box.appendChild(ul);
+  const plan = el('div'); plan.append(platformMark('yt'), document.createTextNode(' ' + r.youtube + ' (OBS\'s stream)   '), platformMark('tw'), document.createTextNode(' ' + r.twitch));
+  box.appendChild(plan);
+  box.appendChild(el('div', 'qnote', 'Start Streaming in OBS starts both. Stats+ shows each one and has a Stop button for each. YouTube uses Stream quality above; Twitch uses Twitch\'s limits.'));
+  const t = el('label', 'opt'); t.style.marginTop = '6px';
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!d.status.test_mode;
+  cb.onchange = () => api('/api/multi', { action: 'test', on: cb.checked }).then(() => toast(cb.checked ? 'Twitch test mode on: Twitch won\'t broadcast' : 'Twitch test mode off')).catch(e => toast(e.message, true));
+  t.append(cb, document.createTextNode(' Test Twitch without broadcasting (sends to Twitch\'s servers, viewers see nothing)'));
+  box.appendChild(t);
+}
 function draw() {
   drawUpdate();
-  const twitch = st.platform === 'twitch';
-  platformSwitch($('#plat'), st.platform || 'youtube');
-  $('#twSteps').hidden = !twitch; $('#ytSteps').hidden = twitch;
-  $('#c4').textContent = String(stepNum().panels); drawLayout();
-  if (twitch) { drawTwitch(); statusPill($('#pill'), st.status || {}); $('#quota').textContent = ''; return; }
+  const plat = st.platform || 'youtube', twitch = plat === 'twitch', bothP = plat === 'both';
+  $('#platNote').textContent = 'Streaming to ' + { youtube: 'YouTube', twitch: 'Twitch', both: 'YouTube and Twitch at the same time' }[plat] + '. Change it with the buttons at the top of Controls+.';
+  $('#twSteps').hidden = !(twitch || bothP); $('#ytSteps').hidden = twitch; $('#msSteps').hidden = !bothP;
+  numberSteps(); $('#c4').textContent = num('c4'); drawLayout();
+  if (bothP) { drawTwitch(); drawMulti(); }
+  if (twitch) { drawTwitch(); $('#quota').textContent = ''; return; }
   const has = st.has_client, con = st.yt_connected != null ? st.yt_connected : st.connected, c = st.config || {};
-  $('#c1').className = 'chk' + (has ? ' done' : ''); $('#c1').textContent = has ? '✓' : '2';
-  $('#c2').className = 'chk' + (con ? ' done' : ''); $('#c2').textContent = con ? '✓' : '3';
+  $('#c1').className = 'chk' + (has ? ' done' : ''); $('#c1').textContent = has ? '✓' : num('c1');
+  $('#c2').className = 'chk' + (con ? ' done' : ''); $('#c2').textContent = con ? '✓' : num('c2');
   if (has) {
     $('#s1').innerHTML = '<div class="box small">Google API access is set up. <span class="link" id="redo">Replace client file</span></div>';
     $('#redo').onclick = () => { st.has_client = false; draw(); };
@@ -234,11 +268,10 @@ function draw() {
     : 'Connect your channel above (or enter it here) so chat knows where to look.';
   $('#srcNow').textContent = src;
   const srcOk = !!(c.channel_id || c.watch_override);
-  $('#c3').className = 'chk' + (srcOk ? ' done' : ''); $('#c3').textContent = srcOk ? '✓' : '4';
+  $('#c3').className = 'chk' + (srcOk ? ' done' : ''); $('#c3').textContent = srcOk ? '✓' : num('c3');
   $('#chanRow').style.display = con ? 'none' : '';
   $('#watch').value = '';
   $('#quota').textContent = 'YouTube API units used today: ' + fmtNum(st.quota) + ' of 10,000 (resets midnight Pacific). Reading chat uses none.';
-  statusPill($('#pill'), s);
 }
 async function sendClient(f) {
   try { await api('/api/client', await f.text(), { raw: true, type: 'application/json' }); toast('Google API access saved'); }
@@ -250,8 +283,7 @@ $('#watchMine').onclick = () => api('/api/settings', { watch_override: '' }).the
 
 connect(ev => {
   if (ev.type === 'hello' || ev.type === 'settings') { st = { ...st, ...ev }; draw(); }
-  else if (ev.type === 'status') { st.status = ev; st.connected = ev.connected; statusPill($('#pill'), ev); }
-  else if (ev.type === 'disconnected') statusPill($('#pill'), { state: 'disconnected' });
+  else if (ev.type === 'status') { st.status = ev; st.connected = ev.connected; }
 });
 // ---------- stream quality
 let q = null, qPick = null, qBusy = false, qTyping = false;
@@ -262,7 +294,7 @@ function drawQuality() {
   const box = $('#quality'); box.innerHTML = '';
   if (!q || q.error) { box.textContent = (q && q.error) || 'OBS isn\'t connected.'; return; }
   const applied = q.preset && !q.issues.length;
-  $('#c6').className = 'chk' + (applied ? ' done' : ''); $('#c6').textContent = applied ? '✓' : '1';
+  $('#c6').className = 'chk' + (applied ? ' done' : ''); $('#c6').textContent = applied ? '✓' : num('c6');
   qPick = qPick || q.preset || 'recommended';
   const cur = q.current || {}, maker = (q.plans[qPick] || {}).maker;
 

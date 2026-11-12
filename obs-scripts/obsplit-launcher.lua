@@ -111,7 +111,7 @@ end
 function script_description()
     return [[<b>OBSplit</b><br>
 Starts the OBSplit panels with OBS and restarts them automatically if they ever stop.<br>
-Panels are in the <b>Docks</b> menu (Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, OBSplit Setup).]]
+Panels are in the <b>Docks</b> menu (Chat+, Stream Info, Stats+, Scenes+, Sources+, Audio+, Controls+, OBSplit Setup).]]
 end
 
 function script_properties()

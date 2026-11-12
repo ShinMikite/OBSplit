@@ -22,10 +22,11 @@ OBS = os.path.join(os.environ.get("APPDATA", ""), "obs-studio")
 STATE = os.path.join(APPDIR, "app", "data", "obs_integration.json")
 URL = "http://127.0.0.1:47821"
 DOCKS = [("Chat+", URL + "/chat"), ("Stream Info", URL + "/info"), ("Stats+", URL + "/stats"),
-         ("Scenes+", URL + "/scenes"), ("Sources+", URL + "/sources"), ("Audio+", URL + "/audio"),
+         ("Scenes+", URL + "/scenes"), ("Sources+", URL + "/sources"), ("Audio+", URL + "/audio"), ("Controls+", URL + "/controls"),
          ("OBSplit Setup", URL + "/")]
 SCRIPTS = [os.path.join(APPDIR, "obs-scripts", "obsplit-launcher.lua"),
            os.path.join(APPDIR, "obs-scripts", "obsplit-backup-launcher.lua"),
+           os.path.join(APPDIR, "obs-scripts", "obsplit-multistream.lua"),
            os.path.join(APPDIR, "obs-scripts", "auto-audio-setup.lua")]
 QUIET = "--quiet" in sys.argv
 
@@ -266,7 +267,7 @@ def install():
     json.dump(state, open(STATE, "w", encoding="utf-8"), indent=2)
     say("OBSplit", "OBSplit is connected to OBS.\n\n"
                    "Start OBS: the panels are in the Docks menu (Chat+, Stream Info, Stats+, "
-                   "Scenes+, Sources+, Audio+, OBSplit Setup). Panels you already had stay where they were.\n\n"
+                   "Scenes+, Sources+, Audio+, Controls+, OBSplit Setup). Panels you already had stay where they were.\n\n"
                    f"A backup of your previous OBS settings is in:\n{where}")
     return 0
 

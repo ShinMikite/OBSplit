@@ -90,19 +90,28 @@ function connect(onEvent) {
   }, () => onEvent({ type: 'disconnected' }));
 }
 
-// The YouTube / Twitch buttons. Switching changes Chat, Stream Info, Stats and Setup everywhere at once;
+// The YouTube / Twitch buttons (in Controls+). Switching changes Chat, Stream Info, Stats and Setup everywhere at once;
 // Scenes+, Sources+ and Audio+ are the same for both.
 const PLATFORM_LOGOS = {
   youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.6 12 4.6 12 4.6s-7 0-8.9.5A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12a31 31 0 0 0 .5 4.8 3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-4.8 31 31 0 0 0-.5-4.8zM9.8 15.1V8.9l5.4 3.1z"/></svg>',
   twitch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4.3 2 2.8 5.8v15.4h5.3V24h3l2.8-2.8h4.3l5.8-5.8V2zm16.5 12.4-3.3 3.3h-5.3l-2.8 2.8v-2.8H5V4h15.8zM17.5 7.4v5.8h-1.9V7.4zm-5.3 0v5.8h-1.9V7.4z"/></svg>',
 };
+// One icon for YouTube + Twitch: one badge split down the middle, YouTube's rounded red half with its play
+// triangle on the left, Twitch's purple bubble (with its tail) and bars on the right, a "+" on the seam
+PLATFORM_LOGOS.both = '<svg viewBox="0 0 28 22" aria-hidden="true">' +
+  '<path class="yt" fill="currentColor" d="M14 2H5.5A4.5 4.5 0 0 0 1 6.5v7A4.5 4.5 0 0 0 5.5 18H14z"/>' +
+  '<path class="tw" fill="currentColor" d="M14 2h13v11.2L22.2 18h-3.4l-2.6 2.6V18H14z"/>' +
+  '<path class="mk" d="M5.6 7.2 9.4 10l-3.8 2.8zM19 6.6h1.5v4.6H19zM22.2 6.6h1.5v4.6h-1.5z"/>' +
+  '<path class="plus" fill="none" stroke-width="1.9" stroke-linecap="round" d="M14 7.3v5.4M11.3 10h5.4"/>' +
+  '</svg>';
+const PLATFORM_NAMES = { youtube: 'YouTube', twitch: 'Twitch', both: 'YouTube + Twitch at the same time' };
 function platformSwitch(box, current) {
   if (!box) return;
   box.className = 'plat'; box.innerHTML = '';
-  for (const p of ['youtube', 'twitch']) {
+  for (const p of ['youtube', 'twitch', 'both']) {
     const b = el('button', p + (p === current ? ' on' : ''));
     b.innerHTML = PLATFORM_LOGOS[p];
-    b.title = p === 'youtube' ? 'YouTube' : 'Twitch';
+    b.title = PLATFORM_NAMES[p];
     b.onclick = async () => {
       if (p === current || window._switching) return;
       window._switching = true;
@@ -114,6 +123,10 @@ function platformSwitch(box, current) {
     };
     box.appendChild(b);
   }
+}
+function platformMark(p) {   // small logo: 'yt' or 'tw'
+  const s = el('span', 'pmark ' + p); s.innerHTML = p === 'tw' ? PLATFORM_LOGOS.twitch : PLATFORM_LOGOS.youtube;
+  s.title = p === 'tw' ? 'Twitch' : 'YouTube'; return s;
 }
 // a message from a YouTube / Twitch switch, shown after the panel reloads
 (() => { const n = sessionStorage.getItem('obsplit-note'); if (n) { sessionStorage.removeItem('obsplit-note'); setTimeout(() => toast(n), 300); } })();
@@ -137,6 +150,7 @@ function platformSwitch(box, current) {
 })();
 
 function statusPill(pill, st) {
+  if (!pill) return;
   const map = {
     live: ['live', 'LIVE'], upcoming: ['upcoming', 'Upcoming'], watching: ['watching', 'Watching'],
     offline: ['', 'Offline'], ended: ['', 'Stream ended'], nochannel: ['', 'Setup needed'], chat: ['ok', 'Chat'],

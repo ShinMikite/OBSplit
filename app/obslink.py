@@ -301,6 +301,7 @@ class ObsLink:
         self.mixcheck = {"state": "idle"}
         self.tasks = queue.Queue()
         self.thumb_due = {}
+        self.listeners = []               # other parts of OBSplit that want OBS events (must only queue work)
         threading.Thread(target=self._run, daemon=True, name="obs-link").start()
         threading.Thread(target=self._worker, daemon=True, name="obs-worker").start()
         threading.Thread(target=self._thumbs_loop, daemon=True, name="obs-thumbs").start()
@@ -460,6 +461,11 @@ class ObsLink:
 
     # ----- events (reader thread: never call request() here)
     def _event(self, t, e):
+        for fn in self.listeners:
+            try:
+                fn(t, e)
+            except Exception as ex:
+                self.log("obs event listener error", t, repr(ex))
         if t == "InputSettingsChanged":
             name = e.get("inputName")
             self.heard.pop(name, None)  # new file/settings: listen again

@@ -53,6 +53,7 @@
   #bottom { flex: none; display: flex; gap: 6px; padding: 7px 8px; background: var(--panel);
     border-top: 1px solid var(--border); }
   #msgIn { flex: 1; min-width: 0; }
+  #target { flex: none; width: auto; }
   #count { align-self: center; font-size: .75em; }
   .uc-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
   .uc-head img { width: 48px; height: 48px; border-radius: 50%; }
@@ -65,15 +66,14 @@
 </head>
 <body>
 <div class="bar">
-  <span id="plat"></span>
   <span id="pill" class="pill"><span class="dot"></span>…</span>
-  <span id="viewers" class="muted small"></span>
   <input id="filter" class="grow" placeholder="Filter chat…">
   <button id="gear" class="ib" title="Chat settings"></button>
 </div>
 <div id="list"></div>
 <button id="more" hidden></button>
 <div id="bottom">
+  <select id="target" hidden title="Where to send"><option value="both">Both</option><option value="youtube">YouTube</option><option value="twitch">Twitch</option></select>
   <input id="msgIn" maxlength="200" placeholder="Send a message…" autocomplete="off">
   <span id="count" class="muted"></span>
   <button id="send" class="primary">Chat</button>
@@ -91,6 +91,8 @@ const COLORS = ['#ff6b6b','#ff9f43','#feca57','#1dd1a1','#48dbfb','#54a0ff','#a2
   '#e17055','#00cec9','#81ecec','#fab1a0','#55efc4','#74b9ff','#ffeaa7','#b8e994','#f8a5c2','#7bed9f'];
 const MAX_ROWS = 800;
 let cfg = {}, status = {}, connected = false, pinned = true, unread = 0;
+let both = false, twInfo = {}, twConnected = false;   // YouTube + Twitch at the same time
+const myIds = () => [cfg.channel_id, twInfo.user_id ? 'tw:' + twInfo.user_id : null].filter(Boolean);
 const chatters = new Map(); // name -> {ch, last}
 const sent = []; let sentIdx = -1;
 const list = $('#list'), filterIn = $('#filter'), msgIn = $('#msgIn');
@@ -98,7 +100,8 @@ const list = $('#list'), filterIn = $('#filter'), msgIn = $('#msgIn');
 function colorFor(ch) { let h = 0; for (const c of ch || '') h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; }
 
 function applySettings() {
-  platformSwitch($('#plat'), cfg.platform || 'youtube');
+  both = cfg.platform === 'both';
+  $('#target').hidden = !both;
   msgIn.maxLength = cfg.platform === 'twitch' ? 500 : 200;
   document.documentElement.style.setProperty('--fs', (cfg.font_size || 14) + 'px');
   document.body.classList.toggle('no-ts', !cfg.show_timestamps);
@@ -158,7 +161,7 @@ function fmtSecs(s) { return s >= 3600 ? (s / 3600) + 'h' : s >= 60 ? (s / 60) +
 
 function render(ev) {
   let row;
-  const isMine = ev.ch && ev.ch === cfg.channel_id;
+  const isMine = ev.ch && myIds().includes(ev.ch);
   if (ev.kind === 'system') {
     row = el('div', 'sys'); row.appendChild(segsNode(ev.segs));
   } else if (ev.kind === 'giftrecv') {
@@ -193,7 +196,11 @@ function render(ev) {
     }
     row.appendChild(head); row.appendChild(body);
   }
-  row.dataset.id = ev.id || ''; row.dataset.ch = ev.ch || '';
+  row.dataset.id = ev.id || ''; row.dataset.ch = ev.ch || ''; row.dataset.plat = ev.plat === 'tw' ? 'tw' : 'yt';
+  if (both && ev.kind !== 'system') {     // which platform each message is from
+    const mk = platformMark(row.dataset.plat), head = row.querySelector('.head'), ts = row.querySelector('.ts');
+    if (head) head.prepend(mk); else if (ts) ts.after(mk); else row.prepend(mk);
+  }
   row.dataset.search = ((ev.name || '') + ' ' + (ev.segs || []).map(s => s.t || s.alt || '').join('')).toLowerCase();
   if (ev.deleted) row.classList.add('del');
   if (ev.ch && !isMine && ev.kind !== 'system') row.appendChild(toolsNode(ev));
@@ -234,8 +241,13 @@ async function act(path, body, okMsg) {
 // ---------- sending
 function updateInput() {
   const live = !!status.video;
-  msgIn.disabled = $('#send').disabled = !(connected && live);
-  msgIn.placeholder = !connected ? 'Connect ' + (cfg.platform === 'twitch' ? 'Twitch' : 'YouTube') + ' on the Setup panel to chat'
+  const can = both ? (twConnected || (connected && live)) : (connected && live);
+  msgIn.disabled = $('#send').disabled = !can;
+  msgIn.placeholder = both
+    ? (!can ? 'Connect YouTube or Twitch on the Setup panel to chat'
+      : live ? 'Send a message…  (Tab = complete @names)'
+      : 'Send to Twitch chat (YouTube isn\'t live)')
+    : !connected ? 'Connect ' + (cfg.platform === 'twitch' ? 'Twitch' : 'YouTube') + ' on the Setup panel to chat'
     : !live ? 'Not live right now' : 'Send a message…  (Tab = complete @names)';
 }
 // Your message shows up right away (dimmed) instead of after YouTube's chat feed sends it back a few seconds
@@ -248,7 +260,7 @@ async function send() {
   row.classList.add('pending'); row.dataset.pending = pendingText([{ t }]); row.title = 'Sending…';
   list.appendChild(row); list.scrollTop = list.scrollHeight; pinned = true;
   try {
-    await api('/api/send', { text: t });
+    await api('/api/send', both ? { text: t, target: $('#target').value } : { text: t });
     row.title = 'Sent';
     // if YouTube's copy never matches (e.g. it changed an emoji), stop showing it as pending
     setTimeout(() => { if (row.isConnected) { row.classList.remove('pending'); row.removeAttribute('title'); delete row.dataset.pending; } }, 15000);
@@ -259,7 +271,7 @@ async function send() {
   msgIn.focus();
 }
 function takePending(ev) {
-  if (ev.kind !== 'text' || !ev.ch || ev.ch !== cfg.channel_id) return;
+  if (ev.kind !== 'text' || !ev.ch || !myIds().includes(ev.ch)) return;
   const txt = pendingText(ev.segs);
   for (const r of list.querySelectorAll('.msg.pending')) if (r.dataset.pending === txt) { r.remove(); return; }
 }
@@ -381,23 +393,16 @@ $('#gear').onclick = () => {
   };
 };
 
-// ---------- viewers in the top bar
-async function pollViewers() {
-  try { const s = await api('/api/stats'); $('#viewers').textContent = s.viewers != null ? fmtNum(s.viewers) + ' watching' : ''; } catch (e) { }
-}
-setInterval(pollViewers, 30000);
-
 // ---------- live events
 connect(ev => {
   switch (ev.type) {
     case 'hello':
-      cfg = ev.config; status = ev.status; connected = ev.connected;
+      cfg = ev.config; status = ev.status; connected = ev.connected; twInfo = ev.twitch || {}; twConnected = !!ev.tw_connected;
       applySettings(); statusPill($('#pill'), status);
       list.innerHTML = ''; ev.recent.forEach(e => add(e, true)); list.scrollTop = list.scrollHeight;
       if (!status.video) add({ kind: 'system', segs: [{ t: status.state === 'nochannel'
         ? (cfg.platform === 'twitch' ? 'Open the Setup panel to connect Twitch, or enter a Twitch channel to read.' : 'Open the Setup panel to connect your YouTube channel.')
         : 'Waiting for your stream to start. Chat will appear here automatically.' }] });
-      pollViewers();
       break;
     case 'msg': takePending(ev); add(ev); break;
     case 'replace': {
@@ -408,9 +413,12 @@ connect(ev => {
     case 'delete':
       for (const r of list.children) if ((ev.id && r.dataset.id === ev.id) || (ev.ch && r.dataset.ch === ev.ch)) r.classList.add('del');
       break;
-    case 'clear': list.innerHTML = ''; add({ kind: 'system', segs: [{ t: 'Connected to chat.' }] }); break;
+    case 'clear':
+      if (ev.plat) { for (const r of [...list.children]) if (r.dataset.plat === ev.plat && r.dataset.id) r.remove(); break; }   // one platform's chat restarted
+      list.innerHTML = ''; add({ kind: 'system', segs: [{ t: 'Connected to chat.' }] }); break;
+    case 'tw_status': break;
     case 'status': status = ev; connected = ev.connected; statusPill($('#pill'), status); applySettings(); break;
-    case 'settings': cfg = ev.config; connected = ev.connected; applySettings(); break;
+    case 'settings': cfg = ev.config; connected = ev.connected; twInfo = ev.twitch || twInfo; twConnected = !!ev.tw_connected; applySettings(); break;
     case 'disconnected': statusPill($('#pill'), { state: 'disconnected' }); break;
   }
 });
